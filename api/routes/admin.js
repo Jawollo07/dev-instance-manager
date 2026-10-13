@@ -5,6 +5,7 @@ const { execFile } = require('node:child_process')
 const { promisify } = require('node:util')
 const run = promisify(execFile)
 const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
+const BACKUP_HELPER = process.env.DEVVM_BACKUP_HELPER || '/usr/local/sbin/backup-devvm'
 const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 
@@ -30,6 +31,20 @@ async function getInstance(user) {
 }
 
 module.exports = async function (fastify) {
+  fastify.post('/api/admin/backups', async (req, reply) => {
+    if (!allowedOrigin(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
+    const access = await admin(req, reply)
+    if (!access) return
+    try {
+      const result = await run('sudo', ['-n', BACKUP_HELPER], { timeout: 1800000, maxBuffer: 1048576 })
+      reply.header('cache-control', 'no-store')
+      return { ok: true, output: result.stdout.slice(-8000) }
+    } catch (err) {
+      req.log.error({ err }, 'admin backup failed')
+      return reply.code(502).send({ error: 'Backup fehlgeschlagen. Ist der root-eigene Backup-Helper installiert und in sudoers freigegeben?' })
+    }
+  })
+
   fastify.get('/api/admin/users', async (req, reply) => {
     const access = await admin(req, reply)
     if (!access) return
