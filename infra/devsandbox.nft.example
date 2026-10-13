@@ -1,0 +1,20 @@
+#!/usr/sbin/nft -f
+# Review against existing nftables/LXD rules before applying. This does not flush other rules.
+table inet devsandbox {
+  set private4 {
+    type ipv4_addr
+    flags interval
+    elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 }
+  }
+  chain input_sandbox_guard {
+    type filter hook input priority -5; policy accept;
+    iifname "dv-*" ct state established,related accept
+    iifname "dv-*" udp dport { 53, 67 } accept
+    iifname "dv-*" tcp dport 53 accept
+    iifname "dv-*" drop
+  }
+  chain forward_sandbox_guard {
+    type filter hook forward priority -5; policy accept;
+    iifname "dv-*" ip daddr @private4 drop
+  }
+}

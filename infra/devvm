@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+LXC=/snap/bin/lxc
+CONFIG_DIR=/etc/dev-instance-manager
+STATE_DIR=/var/lib/dev-instance-manager
+NETWORK_DIR="$STATE_DIR/networks"
+CLOUD_INIT="$CONFIG_DIR/cloud-init.yaml"
+STORAGE_FILE="$CONFIG_DIR/storage-pool"
+die() { echo "devvm: $*" >&2; exit 1; }
+[[ $# -eq 2 ]] || die "Usage: devvm {status|create|start|stop} <username>"
+action="$1"; username="$2"
+[[ "$username" =~ ^[a-zA-Z0-9@._+-]{1,128}$ ]] || die "Invalid username"
+case "$action" in status|create|start|stop) ;; *) die "Invalid action" ;; esac
+[[ -x "$LXC" ]] || die "LXD CLI missing at $LXC"
+key="$(printf '%s' "$username" | sha256sum | cut -c1-32)"
+vm="dev-$(printf '%s' "$key" | cut -c1-20)"
+network="dv-$(printf '%s' "$key" | cut -c1-12)"
+mkdir -p "$NETWORK_DIR" /run/lock
+chmod 0700 "$STATE_DIR" "$NETWORK_DIR"
+exec 9>/run/lock/devvm-network-map.lock
+flock 9
+octet=""
+if [[ -f "$NETWORK_DIR/$key" ]]; then
+  octet="$(cat "$NETWORK_DIR/$key")"
+  [[ "$octet" =~ ^([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$ ]] || die "Bad subnet allocation"
+fi
+status_json() {
+  "$LXC" list "$vm" --format=json | python3 -c '
+import json,sys
+a=json.load(sys.stdin)
+if not a: print(json.dumps({"exists":False,"name":sys.argv[1],"network":sys.argv[2],"status":"Missing","ip":None})); raise SystemExit
+i=a[0]; s=i.get("state") or {}; ip=None
+for nic in (s.get("network") or {}).values():
+ for addr in nic.get("addresses") or []:
+  if addr.get("family")=="inet" and addr.get("scope")=="global": ip=addr.get("address"); break
+ if ip: break
+print(json.dumps({"exists":True,"name":i.get("name",sys.argv[1]),"network":sys.argv[2],"status":i.get("status") or s.get("status") or "Unknown","ip":ip}))
+' "$vm" "$network"
+}
+allocate_network() {
+  [[ -n "$octet" ]] && return
+  local n tmp
+  for n in $(seq 1 254); do
+    if ! grep -hqx "$n" "$NETWORK_DIR"/* 2>/dev/null; then octet="$n"; break; fi
+  done
+  [[ -n "$octet" ]] || die "No subnet allocations left"
+  tmp="$(mktemp "$NETWORK_DIR/.allocation.XXXXXX")"
+  printf '%s\n' "$octet" > "$tmp"; mv "$tmp" "$NETWORK_DIR/$key"
+}
+ensure_network() {
+  allocate_network
+  if ! "$LXC" network show "$network" >/dev/null 2>&1; then
+    "$LXC" network create "$network" bridge "ipv4.address=10.220.$octet.1/24" ipv4.nat=true ipv6.address=none
+  fi
+}
+case "$action" in
+  status) status_json ;;
+  create)
+    [[ -r "$CLOUD_INIT" && -r "$STORAGE_FILE" ]] || die "Missing cloud-init or storage-pool config"
+    pool="$(tr -d '[:space:]' < "$STORAGE_FILE")"
+    [[ "$pool" =~ ^[a-zA-Z0-9_-]{1,63}$ ]] || die "Invalid storage pool"
+    ensure_network
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    if [[ "$exists" != true ]]; then
+      "$LXC" init ubuntu:24.04 "$vm" --vm --network "$network" --storage "$pool" --config limits.cpu=2 --config limits.memory=3GiB --device root,size=20GiB
+      "$LXC" config set "$vm" cloud-init.user-data "$(cat "$CLOUD_INIT")"
+    fi
+    current="$(status_json)"
+    running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
+    [[ "$running" == true ]] || "$LXC" start "$vm"
+    status_json
+    ;;
+  start)
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    [[ "$exists" == true ]] || die "Instance missing; use create first"
+    running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
+    [[ "$running" == true ]] || "$LXC" start "$vm"
+    status_json
+    ;;
+  stop)
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    if [[ "$exists" == true ]]; then
+      running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
+      [[ "$running" == true ]] && "$LXC" stop "$vm" --timeout 30
+    fi
+    status_json
+    ;;
+esac
