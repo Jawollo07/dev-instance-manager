@@ -1,55 +1,43 @@
 # Dev Instance Manager
 
-Self-hosted management for persistent per-user VS Code Web workspaces on LXD VMs, designed for up to eight users who may execute arbitrary code. **Authentik is not required.** The application has its own local username/password login.
+Self-hosted administration for up to eight persistent VS Code Web workspaces on isolated LXD VMs. Authentik is not required.
 
-**Security status:** implementation starter, not security-audited or tested on the target LXD host. Do not expose it to users until the host firewall, LXD setup, login flow, VM isolation and recovery have been validated.
+## Desired URL layout
+
+- `https://vs.code.de/admin` — admin interface with local session login.
+- `https://vs.code.de/test1` — user's own VS Code workspace, protected with HTTP Basic Authentication.
+- `https://vs.code.de/test23` — another independent workspace and independent credentials.
+- `https://vs.code.de/` redirects to `/admin`.
+
+The Basic Auth username/password are the local user's username and password. A credential is accepted only when both the username and requested URL slug match the same enabled workspace account. Requests and WebSocket upgrades are authenticated before proxying, and the Basic Auth header is never forwarded to code-server. All traffic must use HTTPS.
+
+## Admin interface features
+
+- Create users with a unique username and URL slug.
+- Create the user's LXD VM during provisioning.
+- List users, URLs, VM state and VM IP.
+- Start, stop or create a workspace.
+- Disable/enable users, reset passwords and delete a user's VM and account.
+- Enforce an eight-user workspace cap.
+- Trigger a backup of all `dev-*` VMs from the admin dashboard when the root-owned backup helper is installed.
+
+CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel, audit log viewer and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
+
+**Security status:** starter implementation only, not a security audit. It has not been end-to-end tested on the target Ubuntu/LXD host. Do not expose it to users until the network, VM boot, proxy and restore flows are tested.
 
 ## Architecture
 
-- Existing Vite + TypeScript frontend and Fastify API.
-- Local accounts provisioned by an administrator from the host shell; passwords are stored as salted scrypt hashes.
-- Eight-hour opaque sessions in server memory, sent in an `HttpOnly; SameSite=Strict` cookie (also `Secure` in production). Restarting the API invalidates all sessions.
-- One Ubuntu 24.04 LXD VM per local username.
-- Every VM has a separate LXD bridge, 2 vCPU, 3 GiB RAM and a 20 GiB root disk.
-- The root-owned helper caps allocations at eight per-user workspaces.
-- Persistent project directory: `/home/coder/project` on the VM disk.
-- code-server listens on port 8080 on the private VM network; the API proxies `/workspace/` and WebSockets.
-- The API calls a fixed root-owned helper through sudo; it does not access the LXD socket directly.
-- LXD names derive from a SHA-256 hash of the validated username.
+- Fastify API bound to loopback behind NGINX.
+- Local user store at `/var/lib/dev-instance-manager-users/users.json`, containing salted scrypt hashes, usernames, URL slugs and roles.
+- Admin interface uses an eight-hour opaque in-memory session in an `HttpOnly; SameSite=Strict` cookie, with `Secure` in production. API restart invalidates sessions.
+- Workspace URLs use HTTP Basic Auth on every request and WebSocket handshake.
+- One Ubuntu 24.04 LXD VM per user; each VM has a separate bridge.
+- VM names and network names derive from a hash of the validated URL slug.
+- Projects persist on the VM disk under `/home/coder/project`.
+- code-server listens on port 8080 on its private VM network, with a per-user base path.
+- API calls the fixed root-owned helper through sudo; it does not access the LXD socket directly.
 
-## Local account setup
-
-The API reads `/etc/dev-instance-manager/users.json` by default. Keep the file root-owned and writable only by root. The API service user needs read-only group access.
-
-Create the API service account first, following the host setup below. Then create a local user by running the provisioning script from a trusted checkout:
-
-    read -rsp 'Neues Passwort: ' PASSWORD; printf '\n'
-    printf '%s' "$PASSWORD" | sudo node infra/create-user.js alice
-    unset PASSWORD
-    sudo chgrp devmanager /etc/dev-instance-manager/users.json
-    sudo chmod 0640 /etc/dev-instance-manager/users.json
-
-Use at least 12 characters for passwords. Repeat the `chgrp` and `chmod` commands after each provisioning/update operation. The script replaces an existing account with the same username, which is useful for password resets. Removing an account from the `users` array disables login; restart the API to invalidate that user's already-issued sessions immediately. Do not commit `users.json` or store passwords in environment variables or command-line arguments.
-
-The username is also used to derive the workspace identity. Use stable usernames; renaming a user creates a different workspace identity.
-
-## API
-
-- `POST /api/auth/login` — verify local credentials and issue a session cookie.
-- `GET /api/auth/me` — return the logged-in username.
-- `POST /api/auth/logout` — revoke the current in-memory session.
-- `GET /api/instance` — current user's workspace status.
-- `POST /api/instance/create`
-- `POST /api/instance/start`
-- `POST /api/instance/stop`
-- `GET /api/health` — minimal public health response.
-- `/workspace/` — HTTP and WebSocket proxy to the authenticated user's code-server.
-
-Workspace routes accept only a valid local session. Client-supplied identity headers such as `X-Authentik-Username` are ignored. Mutating routes validate the request Origin in production. The login endpoint should also be rate-limited at the reverse proxy.
-
-## Ubuntu/LXD host setup
-
-### 1. Inspect
+## 1. Inspect the host
 
     lxc version
     lxc info
@@ -58,9 +46,11 @@ Workspace routes accept only a valid local session. Client-supplied identity hea
     ip route
     sudo nft list ruleset
 
-Choose an existing LXD storage pool. Ensure `10.220.0.0/16` does not overlap with LAN, VPN, Docker or LXD routes. The helper reads the pool name from `/etc/dev-instance-manager/storage-pool`.
+Choose an existing LXD storage pool. Ensure `10.220.0.0/16` does not overlap with LAN, VPN, Docker or existing LXD routes.
 
-### 2. Install helper and cloud-init
+## 2. Install the helper and cloud-init
+
+From a trusted checkout of this repository:
 
     sudo install -d -o root -g root -m 0755 /etc/dev-instance-manager
     sudo install -d -o root -g root -m 0700 /var/lib/dev-instance-manager
@@ -68,58 +58,55 @@ Choose an existing LXD storage pool. Ensure `10.220.0.0/16` does not overlap wit
     sudo install -m 0750 -o root -g root infra/devvm /usr/local/sbin/devvm
     sudo install -m 0640 -o root -g root infra/cloud-init.yaml /etc/dev-instance-manager/cloud-init.yaml
 
-Write the exact name of the chosen storage pool (only use `default` if it exists):
+Set the exact name of the LXD storage pool:
 
     printf '%s\n' 'YOUR_EXISTING_POOL_NAME' | sudo tee /etc/dev-instance-manager/storage-pool >/dev/null
     sudo chown root:root /etc/dev-instance-manager/storage-pool
     sudo chmod 0640 /etc/dev-instance-manager/storage-pool
 
-If LXD is not at `/snap/bin/lxc`, edit the helper to use its verified absolute path.
+The helper currently expects LXD at `/snap/bin/lxc`; verify that path on the host before installing.
 
-### 3. Service user and sudo
+## 3. Create the API service account and writable user store
 
     sudo useradd --system --home /opt/dev-instance-manager --create-home --shell /usr/sbin/nologin devmanager
+    sudo install -d -o devmanager -g devmanager -m 0700 /var/lib/dev-instance-manager-users
     sudo install -d -o root -g devmanager -m 0750 /etc/dev-instance-manager
-    printf '%s\n' '{"users":[]}' | sudo tee /etc/dev-instance-manager/users.json >/dev/null
-    sudo chown root:devmanager /etc/dev-instance-manager/users.json
-    sudo chmod 0640 /etc/dev-instance-manager/users.json
     sudo visudo -f /etc/sudoers.d/dev-instance-manager
 
 Sudoers rule:
 
-    devmanager ALL=(root) NOPASSWD: /usr/local/sbin/devvm *
+    devmanager ALL=(root) NOPASSWD: /usr/local/sbin/devvm *, /usr/local/sbin/backup-devvm
 
-Keep the helper, cloud-init and storage-pool file root-owned and not writable by `devmanager`. The account needs only read access to `users.json`; do not add it to the `lxd` group because LXD access is effectively host-administrator access.
+Keep `/usr/local/sbin/devvm`, cloud-init and the storage-pool file root-owned and not writable by the API service. Do not add `devmanager` to the `lxd` group; LXD access is effectively host-administrator access.
 
-Create at least one user after installing the provisioning script. If you run the script from the repository checkout, keep that checkout trusted and not writable by the service account.
+The API account store is writable by `devmanager` so the admin interface can create accounts and reset passwords. That is a deliberate trust boundary: a compromise of the API process can alter application accounts, but must not grant direct LXD/socket or arbitrary root access.
 
-### 4. Firewall
+## 4. Bootstrap the first administrator
 
-Review `infra/devsandbox.nft.example` against existing nftables rules:
+Create the store directory as above, then provision the first admin from a trusted checkout installed at `/opt/dev-instance-manager`. Read the password from the terminal and pipe it to the script; do not put it in command-line arguments.
 
-    sudo nft -c -f infra/devsandbox.nft.example
+    read -rsp 'Admin-Passwort (mind. 12 Zeichen): ' PASSWORD; printf '\n'
+    printf '%s' "$PASSWORD" | sudo -u devmanager env DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json node /opt/dev-instance-manager/infra/create-user.js admin admin --admin
+    unset PASSWORD
 
-Only after review and rollback planning:
+The example creates an admin login named `admin` and a slug named `admin`. The admin account is for the dashboard; it does not get a normal user workspace. Use a unique, strong password.
 
-    sudo nft -f infra/devsandbox.nft.example
-    sudo nft list table inet devsandbox
+The script accepts `<username> <slug> [--admin]`. User slugs must be lowercase letters, numbers and hyphens, start with a letter or number, and be at most 32 characters.
 
-Persist rules using the host's existing nftables method. Do not flush the entire firewall. Verify DHCP, VM-to-host denial, VM-to-LAN/VPN denial and intended Internet egress. Separate bridges prevent same-L2 peer traffic. The example still permits outbound traffic to public IPv4 addresses, so arbitrary code can exfiltrate data over the Internet. For stricter use, add an egress proxy/allowlist and explicitly test DNS and IPv6.
-
-### 5. API and frontend
+## 5. Configure the API
 
 Create `/etc/dev-instance-manager/api.env`:
 
     NODE_ENV=production
     HOST=127.0.0.1
     PORT=3000
-    PUBLIC_BASE_URL=https://dev.example.invalid
+    PUBLIC_BASE_URL=https://vs.code.de
     DEVVM_HELPER=/usr/local/sbin/devvm
-    DIM_USERS_FILE=/etc/dev-instance-manager/users.json
+    DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json
 
-Replace the example URL with the real HTTPS origin. Keep the environment file root-owned and readable only by root/service user. Configure Fastify/systemd to load it, use `/opt/dev-instance-manager/api` as working directory, and bind to `127.0.0.1:3000`.
+Set owner/mode appropriately for the service and configure systemd to load this file. Run the API with working directory `/opt/dev-instance-manager/api`, bound only to `127.0.0.1:3000`.
 
-Install dependencies from the existing lockfiles and build:
+Install dependencies and build:
 
     cd /opt/dev-instance-manager/api
     pnpm install --frozen-lockfile
@@ -128,38 +115,54 @@ Install dependencies from the existing lockfiles and build:
     pnpm install --frozen-lockfile
     pnpm build
 
-Serve `web/dist` through the reverse proxy. Keep the API on loopback. Use `infra/nginx-local-auth.example.conf` as a reference for NGINX; replace the domain, TLS paths and filesystem paths. The example includes a login rate limit. Check it with `nginx -t` before reload.
+## 6. NGINX and HTTPS
 
-Do not expose code-server port 8080 or API port 3000 to LAN/WAN. code-server uses `--auth none` because the API proxy enforces session access; direct reachability is a critical security failure.
+Use `infra/nginx-local-auth.example.conf` as a reference. Replace the TLS paths and root directory, and add both `limit_req_zone` directives and the `map` directive to the NGINX `http {}` context. The configuration routes:
 
-### 6. Back up persistent workspaces
+- `/admin` to the dashboard HTML.
+- `/api/*` to the API.
+- `/<slug>` and `/<slug>/*` to the Basic Auth workspace proxy.
+- Static assets to the built frontend.
 
-Install the backup helper as a root-owned executable and run it as root:
+Check before reload:
+
+    sudo nginx -t
+
+Do not expose API port 3000 or code-server port 8080 directly. code-server is configured with `--auth none` because the API proxy performs Basic Auth; direct reachability to port 8080 would bypass that protection. The proxy must pass Authorization to the API, which validates it, and the API must strip it before sending requests upstream.
+
+## 7. Network isolation
+
+Review `infra/devsandbox.nft.example` against the host's current firewall:
+
+    sudo nft -c -f infra/devsandbox.nft.example
+
+Only apply it after review and rollback planning. Do not flush the entire firewall. Verify DHCP, VM-to-host denial, VM-to-LAN/VPN denial, isolation between bridges, DNS and IPv6. The current example allows outbound traffic to public IPv4 addresses, so arbitrary code can exfiltrate data. Strict egress allowlisting remains unfinished.
+
+## 8. Backups
+
+The root backup helper exports all `dev-*` VMs. Install it before using the dashboard's **Backup aller Workspaces** action:
 
     sudo install -m 0750 -o root -g root infra/backup-devvm.sh /usr/local/sbin/backup-devvm
     sudo /usr/local/sbin/backup-devvm
 
-Backups are written to `/var/backups/dev-instance-manager` with mode 0600; the directory is mode 0700. The script exports `dev-*` instances and prunes backup files older than seven days. Set `DEVVM_BACKUP_DIR` or `DEVVM_BACKUP_RETENTION_DAYS` for a different destination/retention. Add a root-owned systemd timer or cron job only after testing a restore. Store an additional copy on a different disk or host; a backup on the same physical disk is not disaster recovery.
+Backups use restrictive permissions and default to seven-day retention. Test a restore before scheduling it. Keep another copy on a different disk or host; same-disk backups are not disaster recovery. **Deleting a user from the admin interface deletes the VM and its project disk. Back it up first.**
 
-### 7. Test before users
+## 9. Validation checklist
 
-1. Run `cd api && pnpm test`; tests cover health, rejected identity headers, invalid login requests and the session lifecycle.
-2. Confirm unauthenticated dashboard/API/workspace requests fail and a local account can log in/out.
-3. Create a test workspace and wait for cloud-init/code-server to finish.
-4. Test editor, terminal, Git and WebSockets.
-5. Stop/start and confirm project files persist.
-6. From the VM, test host, LAN, VPN, Docker bridge and other workspace access; private destinations should fail.
-7. Verify intended egress and test DNS/IPv6 behavior.
-8. Test the eight-workspace limit with multiple VMs.
-9. Back up and restore a VM disk.
-10. Verify NGINX login rate limiting and session cookie flags over HTTPS.
+1. Confirm `/admin` requires an admin session and a normal user gets HTTP 403 from admin APIs.
+2. Create a user and verify `https://vs.code.de/<slug>` prompts for Basic Auth.
+3. Confirm that credentials for one slug do not work on another slug.
+4. Verify browser editor, terminal, Git and WebSockets.
+5. Stop/start the VM and verify project files persist.
+6. From the VM, test host, LAN, VPN, Docker and other-workspace access.
+7. Verify intended egress, DNS and IPv6 behavior.
+8. Test all eight allocations, backups and restore.
+9. Verify NGINX rate limiting and HTTPS cookie flags.
 
-## Resource budget
+## Current limitations
 
-Per user: 2 vCPU, 3 GiB RAM, 20 GiB virtual disk. Eight active VMs can use up to 24 GiB RAM and 160 GiB virtual disk, in addition to Ubuntu and existing services.
-
-## Scope and limitations
-
-Implemented: local password login, salted scrypt password hashes, opaque in-memory sessions, login/logout UI, session-protected workspace actions and proxy, per-user VM naming, create/start/stop/status helper, per-user bridge allocation, persistent project directory, eight-user allocation cap, health endpoint, backup helper and CI.
-
-Not implemented: admin/user management UI, VM deletion, automatic backup scheduling, strict public egress allowlist, automatic resource reclamation and full end-to-end security tests. Sessions are memory-only and are invalidated when the API restarts. Disabling a user does not automatically revoke existing sessions until the API is restarted. The branch has not been tested on the actual LXD host; validate LXD CLI syntax, NGINX config, firewall behavior and VM boot before production.
+- No per-user resource-limit editor in the UI yet; defaults are 2 vCPU, 3 GiB RAM and 20 GiB disk.
+- No UI for restoring backups, viewing audit logs, editing resource limits or scheduling backups.
+- Disabling an account blocks new Basic Auth requests, but does not immediately revoke an already-authenticated browser's cached Basic Auth credentials; it will be rejected on the next request.
+- Admin sessions are in memory and disappear on API restart.
+- The implementation has not been validated on the actual LXD host and is not security-audited.

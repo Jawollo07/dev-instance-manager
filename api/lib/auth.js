@@ -9,6 +9,8 @@ const SESSION_COOKIE = 'dim_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const sessions = new Map()
 const USERNAME_RE = /^[a-zA-Z0-9@._+-]{1,64}$/
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+const USERS_FILE = () => process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager-users/users.json'
 
 function parseCookies(header = '') {
   const cookies = Object.create(null)
@@ -54,7 +56,7 @@ function currentUser(req) {
 }
 
 async function readUsers() {
-  const file = process.env.DIM_USERS_FILE || '/etc/dev-instance-manager/users.json'
+  const file = USERS_FILE()
   let parsed
   try {
     parsed = JSON.parse(await fs.readFile(file, 'utf8'))
@@ -63,11 +65,32 @@ async function readUsers() {
     throw new Error('Benutzerdatei kann nicht gelesen werden.')
   }
   if (!parsed || !Array.isArray(parsed.users)) throw new Error('Ungültiges Benutzerdateiformat.')
-  return parsed.users.filter(u =>
+  return parsed.users.map(u => u && ({ ...u, slug: u.slug || String(u.username || '').toLowerCase(), role: u.role || 'user' })).filter(u =>
     u && typeof u.username === 'string' && USERNAME_RE.test(u.username) &&
+    typeof u.slug === 'string' && SLUG_RE.test(u.slug) &&
+    typeof u.role === 'string' && ['user', 'admin'].includes(u.role) &&
     typeof u.salt === 'string' && /^[a-f0-9]{32,128}$/i.test(u.salt) &&
     typeof u.hash === 'string' && /^[a-f0-9]{128}$/i.test(u.hash)
   )
+}
+
+async function hashPassword(password) {
+  if (typeof password !== 'string' || password.length < 12 || Buffer.byteLength(password) > 1024) {
+    throw new Error('Passwort muss mindestens 12 Zeichen lang sein und höchstens 1024 Byte enthalten.')
+  }
+  const salt = crypto.randomBytes(16)
+  const hash = await scrypt(password, salt, 64)
+  return { salt: salt.toString('hex'), hash: hash.toString('hex') }
+}
+
+async function writeUsers(users) {
+  const file = USERS_FILE()
+  const dir = require('node:path').dirname(file)
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 })
+  const temp = file + '.tmp-' + process.pid + '-' + crypto.randomBytes(4).toString('hex')
+  await fs.writeFile(temp, JSON.stringify({ users }, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
+  await fs.rename(temp, file)
+  await fs.chmod(file, 0o600)
 }
 
 async function verifyPassword(password, user) {
@@ -92,6 +115,6 @@ function destroySession(req) {
 }
 
 module.exports = {
-  USERNAME_RE, SESSION_COOKIE, readUsers, verifyPassword, createSession,
+  USERNAME_RE, SLUG_RE, SESSION_COOKIE, readUsers, writeUsers, hashPassword, verifyPassword, createSession,
   currentUser, destroySession, setSessionCookie, clearSessionCookie
 }

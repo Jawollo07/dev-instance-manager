@@ -8,10 +8,10 @@ NETWORK_DIR="$STATE_DIR/networks"
 CLOUD_INIT="$CONFIG_DIR/cloud-init.yaml"
 STORAGE_FILE="$CONFIG_DIR/storage-pool"
 die() { echo "devvm: $*" >&2; exit 1; }
-[[ $# -eq 2 ]] || die "Usage: devvm {status|create|start|stop} <username>"
+[[ $# -eq 2 ]] || die "Usage: devvm {status|create|start|stop|delete} <slug>"
 action="$1"; username="$2"
-[[ "$username" =~ ^[a-zA-Z0-9@._+-]{1,128}$ ]] || die "Invalid username"
-case "$action" in status|create|start|stop) ;; *) die "Invalid action" ;; esac
+[[ "$username" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "Invalid workspace slug"
+case "$action" in status|create|start|stop|delete) ;; *) die "Invalid action" ;; esac
 [[ -x "$LXC" ]] || die "LXD CLI missing at $LXC"
 key="$(printf '%s' "$username" | sha256sum | cut -c1-32)"
 vm="dev-$(printf '%s' "$key" | cut -c1-20)"
@@ -67,7 +67,8 @@ case "$action" in
     exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
     if [[ "$exists" != true ]]; then
       "$LXC" init ubuntu:24.04 "$vm" --vm --network "$network" --storage "$pool" --config limits.cpu=2 --config limits.memory=3GiB --device root,size=20GiB
-      "$LXC" config set "$vm" cloud-init.user-data "$(cat "$CLOUD_INIT")"
+      cloud_init="$(sed "s|__WORKSPACE_BASE_PATH__|/$username|g" "$CLOUD_INIT")"
+      "$LXC" config set "$vm" cloud-init.user-data "$cloud_init"
     fi
     current="$(status_json)"
     running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
@@ -90,5 +91,13 @@ case "$action" in
       [[ "$running" == true ]] && "$LXC" stop "$vm" --timeout 30
     fi
     status_json
+    ;;
+  delete)
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    if [[ "$exists" == true ]]; then "$LXC" delete "$vm" --force; fi
+    if "$LXC" network show "$network" >/dev/null 2>&1; then "$LXC" network delete "$network"; fi
+    rm -f -- "$NETWORK_DIR/$key"
+    printf '{"exists":false,"name":"%s","network":"%s","status":"Missing","ip":null}\n' "$vm" "$network"
     ;;
 esac
