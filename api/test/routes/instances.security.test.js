@@ -53,7 +53,7 @@ test('login rejects invalid request shapes', async (t) => {
   const response = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { username: 'alice', password: 'long-password', isAdmin: true }
+    payload: { username: 'alice' }
   })
   assert.equal(response.statusCode, 400)
 })
