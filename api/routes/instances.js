@@ -9,7 +9,12 @@ const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 
 function allowedOrigin(req) { return ORIGIN ? req.headers.origin === ORIGIN : process.env.NODE_ENV !== 'production' }
-function requireUser(req, reply) {\n  const user = currentUser(req)\n  if (!user) { reply.code(401).send({ error: 'Bitte anmelden.' }); return null }\n  return user\n}\nasync function action(name, user) {
+function requireUser(req, reply) {
+  const user = currentUser(req)
+  if (!user) { reply.code(401).send({ error: 'Bitte anmelden.' }); return null }
+  return user
+}
+async function action(name, user) {
   const result = await run('sudo', ['-n', HELPER, name, user], { timeout: name === 'create' ? 900000 : 30000, maxBuffer: 1048576 })
   return JSON.parse(result.stdout)
 }
