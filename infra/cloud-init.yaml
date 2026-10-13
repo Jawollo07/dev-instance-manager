@@ -25,7 +25,7 @@ write_files:
       Group=coder
       WorkingDirectory=/home/coder/project
       Environment=HOME=/home/coder
-      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --base-path __WORKSPACE_BASE_PATH__ --base-path-relative /home/coder/project
+      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --base-path __WORKSPACE_BASE_PATH__
       Restart=on-failure
       RestartSec=3
       NoNewPrivileges=true
