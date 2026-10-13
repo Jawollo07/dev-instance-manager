@@ -78,6 +78,9 @@ async function verifyPassword(password, user) {
 }
 
 function createSession(username) {
+  const now = Date.now()
+  for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
+  if (sessions.size >= 512) throw new Error('Zu viele aktive Sitzungen.')
   const token = crypto.randomBytes(32).toString('hex')
   sessions.set(token, { username, expiresAt: Date.now() + SESSION_TTL_MS })
   return token
