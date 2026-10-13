@@ -22,7 +22,8 @@ All endpoints require X-authentik-username from the trusted reverse proxy:
 - POST /api/instance/create
 - POST /api/instance/start
 - POST /api/instance/stop
-- /workspace/ proxies code-server and WebSockets.
+- GET /api/health returns a minimal service-health response.
+- `/workspace/` proxies code-server and WebSockets.
 
 Bind the API only to loopback. Never expose port 3000 directly. NGINX must overwrite X-authentik-username with the authenticated response header, never trust a client-supplied value.
 
@@ -136,4 +137,4 @@ Per user: 2 vCPU, 3 GiB RAM, 20 GiB virtual disk. Eight active VMs can use up to
 
 Implemented: per-user VM naming, create/start/stop/status helper, per-user bridge allocation, persistent project directory, identity/origin checks, HTTP/WebSocket workspace proxy and dashboard.
 
-Not implemented: VM deletion, admin/user management UI, automated backups, strict public egress allowlist, automatic resource reclamation and end-to-end security tests. First boot needs Internet access for package/code-server installation. This branch has not been tested on the actual LXD host; validate LXD CLI syntax, Authentik headers, nftables behavior and VM boot before production.
+Not implemented: VM deletion, admin/user management UI, a configured automatic backup schedule, strict public egress allowlist, automatic resource reclamation and end-to-end security tests. A backup script is included, but it must be scheduled and restore-tested by the operator. First boot needs Internet access for package/code-server installation. This branch has not been tested on the actual LXD host; validate LXD CLI syntax, Authentik headers, nftables behavior and VM boot before production.
