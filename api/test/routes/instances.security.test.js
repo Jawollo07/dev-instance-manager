@@ -27,7 +27,7 @@ test('client-supplied identity headers cannot impersonate a user', async (t) => 
   const app = await build(t)
   const response = await app.inject({
     method: 'GET',
-    url: '/api/instance',
+    url: '/api/admin/users',
     headers: {
       'x-authentik-username': 'alice',
       'x-user': 'alice',
@@ -99,4 +99,67 @@ test('local login issues a session cookie and logout revokes it', async (t) => {
   assert.equal(logout.statusCode, 200)
   const afterLogout = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } })
   assert.equal(afterLogout.statusCode, 401)
+})
+
+test('workspace URL challenges with Basic Auth and ignores spoofed identity headers', async (t) => {
+  const app = await build(t)
+  const response = await app.inject({
+    method: 'GET',
+    url: '/test1',
+    headers: { 'x-user': 'test1', 'x-forwarded-user': 'test1' }
+  })
+  assert.equal(response.statusCode, 401)
+  assert.match(response.headers['www-authenticate'], /^Basic realm=/)
+})
+
+test('Basic Auth credentials for one slug cannot access another slug', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dim-basic-'))
+  const file = path.join(dir, 'users.json')
+  const oldFile = process.env.DIM_USERS_FILE
+  const oldNodeEnv = process.env.NODE_ENV
+  t.after(async () => {
+    if (oldFile === undefined) delete process.env.DIM_USERS_FILE
+    else process.env.DIM_USERS_FILE = oldFile
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = oldNodeEnv
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+  process.env.DIM_USERS_FILE = file
+  process.env.NODE_ENV = 'test'
+  const salt = crypto.randomBytes(16)
+  const hash = crypto.scryptSync('correct-horse-battery-staple', salt, 64)
+  await fs.writeFile(file, JSON.stringify({
+    users: [{ username: 'alice', slug: 'alice', role: 'user', salt: salt.toString('hex'), hash: hash.toString('hex'), disabled: false }]
+  }), { mode: 0o600 })
+  const app = await build(t)
+  const authorization = 'Basic ' + Buffer.from('alice:correct-horse-battery-staple').toString('base64')
+  const response = await app.inject({ method: 'GET', url: '/bob', headers: { authorization } })
+  assert.equal(response.statusCode, 401)
+  assert.match(response.headers['www-authenticate'], /^Basic realm=/)
+})
+
+test('admin API denies a regular user's valid session', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dim-admin-'))
+  const file = path.join(dir, 'users.json')
+  const oldFile = process.env.DIM_USERS_FILE
+  const oldNodeEnv = process.env.NODE_ENV
+  t.after(async () => {
+    if (oldFile === undefined) delete process.env.DIM_USERS_FILE
+    else process.env.DIM_USERS_FILE = oldFile
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = oldNodeEnv
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+  process.env.DIM_USERS_FILE = file
+  process.env.NODE_ENV = 'test'
+  const salt = crypto.randomBytes(16)
+  const hash = crypto.scryptSync('correct-horse-battery-staple', salt, 64)
+  await fs.writeFile(file, JSON.stringify({
+    users: [{ username: 'alice', slug: 'alice', role: 'user', salt: salt.toString('hex'), hash: hash.toString('hex'), disabled: false }]
+  }), { mode: 0o600 })
+  const app = await build(t)
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'alice', password: 'correct-horse-battery-staple' } })
+  const cookie = login.headers['set-cookie'].split(';', 1)[0]
+  const response = await app.inject({ method: 'GET', url: '/api/admin/users', headers: { cookie } })
+  assert.equal(response.statusCode, 403)
 })
