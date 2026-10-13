@@ -64,16 +64,26 @@ module.exports = async function (fastify) {
     if (!vm.exists) return reply.code(404).send({ error: 'Workspace noch nicht erstellt.' })
     if (vm.status !== 'Running' || !vm.ip) return reply.code(409).send({ error: 'Workspace zuerst starten.' })
 
-    const upstream = http.request({ hostname: vm.ip, port: 8080, path: req.raw.url, method: req.method, headers: headersFor(req.headers, vm.ip + ':8080', req.ip) })
-    upstream.on('response', (res) => { reply.hijack(); reply.raw.writeHead(res.statusCode || 502, res.headers); res.pipe(reply.raw) })
+    const proxyHeaders = headersFor(req.headers, vm.ip + ':8080', req.ip)
+    let body
+    if (req.body !== undefined && req.method !== 'GET' && req.method !== 'HEAD') {
+      body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+      proxyHeaders['content-length'] = String(body.length)
+      delete proxyHeaders['transfer-encoding']
+    }
+    // Hijack before returning so Fastify does not auto-send an empty response.
+    reply.hijack()
+    const upstream = http.request({ hostname: vm.ip, port: 8080, path: req.raw.url, method: req.method, headers: proxyHeaders })
+    upstream.on('response', (res) => { reply.raw.writeHead(res.statusCode || 502, res.headers); res.pipe(reply.raw) })
     upstream.on('error', (err) => {
       req.log.warn({ err }, 'workspace upstream failed')
-      if (!reply.raw.headersSent) { reply.hijack(); reply.raw.writeHead(502, { 'content-type': 'text/plain' }); reply.raw.end('Workspace noch nicht bereit.') }
+      if (!reply.raw.headersSent) { reply.raw.writeHead(502, { 'content-type': 'text/plain' }); reply.raw.end('Workspace noch nicht bereit.') }
       else reply.raw.destroy(err)
     })
     req.raw.on('aborted', () => upstream.destroy())
-    req.raw.pipe(upstream)
-    return reply
+    if (body !== undefined) upstream.end(body)
+    else req.raw.pipe(upstream)
+    return
   }
   fastify.all('/workspace', workspace)
   fastify.all('/workspace/*', workspace)
