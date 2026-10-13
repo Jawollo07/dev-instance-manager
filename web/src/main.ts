@@ -33,7 +33,7 @@ function render(vm: Instance) {
  const running = vm.status === 'Running'
  statusEl.className = 'pill ' + (running ? 'running' : '')
  statusLabel.textContent = !vm.exists ? 'Nicht erstellt' : running ? 'Läuft' : vm.status === 'Stopped' ? 'Gestoppt' : vm.status
- createBtn.disabled = busy || (vm.exists && running); startBtn.disabled = busy || !vm.exists || running; stopBtn.disabled = busy || !vm.exists || !running; openBtn.disabled = busy || !vm.exists || !running || !vm.ip; refreshBtn.disabled = busy
+ createBtn.disabled = busy || vm.exists; createBtn.textContent = vm.exists ? 'Workspace erstellt' : 'Workspace erstellen'; startBtn.disabled = busy || !vm.exists || running; stopBtn.disabled = busy || !vm.exists || !running; openBtn.disabled = busy || !vm.exists || !running || !vm.ip; refreshBtn.disabled = busy
 }
 async function api<T extends ErrorResponse>(url: string, method = 'GET'): Promise<T> {
  const response = await fetch(url, { method, credentials: 'same-origin', headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : '{}' })
