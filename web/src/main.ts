@@ -77,6 +77,7 @@ async function refresh() {
   const data = await api<InstanceResponse & ErrorResponse>('/api/instance')
   if (dashboard) dashboard.hidden = false
   loginPanel.hidden = true
+  logoutBtn.hidden = false
   usernameEl.textContent = data.user; render(data.instance)
   if (data.instance.exists && data.instance.status === 'Running' && !data.instance.ip) setMessage('VM startet. IP wird noch ermittelt …')
   else if (data.instance.exists && data.instance.status === 'Running') setMessage('Deine VM läuft. VS Code kann geöffnet werden.', 'success')
