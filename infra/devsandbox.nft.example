@@ -8,6 +8,7 @@ table inet devsandbox {
   }
   chain input_sandbox_guard {
     type filter hook input priority -5; policy accept;
+    iifname "dv-*" ct state established,related accept
     iifname "dv-*" udp dport { 53, 67 } accept
     iifname "dv-*" tcp dport 53 accept
     iifname "dv-*" drop
