@@ -1,0 +1,42 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, git, build-essential, python3, python3-pip, nodejs, npm]
+users:
+  - default
+  - name: coder
+    gecos: Sandboxed developer
+    shell: /bin/bash
+    groups: [users]
+    lock_passwd: true
+    sudo: []
+write_files:
+  - path: /etc/systemd/system/code-server.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=VS Code Web for sandbox user
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      Type=simple
+      User=coder
+      Group=coder
+      WorkingDirectory=/home/coder/project
+      Environment=HOME=/home/coder
+      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --base-path /workspace --base-path-relative /home/coder/project
+      Restart=on-failure
+      RestartSec=3
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=full
+      ProtectHome=read-only
+      ReadWritePaths=/home/coder
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [bash, -lc, "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=deb"]
+  - [install, -d, -o, coder, -g, coder, /home/coder/project]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, code-server.service]
