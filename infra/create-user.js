@@ -12,7 +12,7 @@ const path = require('node:path')
 const username = process.argv[2] || ''
 const slug = process.argv[3] || ''
 const role = process.argv[4] === '--admin' ? 'admin' : 'user'
-const file = process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager/accounts/users.json'
+const file = process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager-users/users.json'
 
 async function main() {
   if (!/^[a-zA-Z0-9@._+-]{1,64}$/.test(username)) throw new Error('Ungültiger Benutzername.')
