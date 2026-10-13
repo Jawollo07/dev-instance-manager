@@ -67,7 +67,8 @@ case "$action" in
     exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
     if [[ "$exists" != true ]]; then
       "$LXC" init ubuntu:24.04 "$vm" --vm --network "$network" --storage "$pool" --config limits.cpu=2 --config limits.memory=3GiB --device root,size=20GiB
-      cloud_init="$(sed "s|__WORKSPACE_BASE_PATH__|/$username|g" "$CLOUD_INIT")"\n      "$LXC" config set "$vm" cloud-init.user-data "$cloud_init"
+      cloud_init="$(sed "s|__WORKSPACE_BASE_PATH__|/$username|g" "$CLOUD_INIT")"
+      "$LXC" config set "$vm" cloud-init.user-data "$cloud_init"
     fi
     current="$(status_json)"
     running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
@@ -90,5 +91,13 @@ case "$action" in
       [[ "$running" == true ]] && "$LXC" stop "$vm" --timeout 30
     fi
     status_json
+    ;;
+  delete)
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    if [[ "$exists" == true ]]; then "$LXC" delete "$vm" --force; fi
+    if "$LXC" network show "$network" >/dev/null 2>&1; then "$LXC" network delete "$network"; fi
+    rm -f -- "$NETWORK_DIR/$key"
+    printf '{"exists":false,"name":"%s","network":"%s","status":"Missing","ip":null}\n' "$vm" "$network"
     ;;
 esac
