@@ -88,7 +88,7 @@ async function writeUsers(users) {
   const dir = require('node:path').dirname(file)
   await fs.mkdir(dir, { recursive: true, mode: 0o700 })
   const temp = file + '.tmp-' + process.pid + '-' + crypto.randomBytes(4).toString('hex')
-  await fs.writeFile(temp, JSON.stringify({ users }, null, 2) + '\\n', { mode: 0o600, flag: 'wx' })
+  await fs.writeFile(temp, JSON.stringify({ users }, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
   await fs.rename(temp, file)
   await fs.chmod(file, 0o600)
 }
