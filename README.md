@@ -27,7 +27,7 @@ CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCP
 ## Architecture
 
 - Fastify API bound to loopback behind NGINX.
-- Local user store at `/var/lib/dev-instance-manager/accounts/users.json`, containing salted scrypt hashes, usernames, URL slugs and roles.
+- Local user store at `/var/lib/dev-instance-manager-users/users.json`, containing salted scrypt hashes, usernames, URL slugs and roles.
 - Admin interface uses an eight-hour opaque in-memory session in an `HttpOnly; SameSite=Strict` cookie, with `Secure` in production. API restart invalidates sessions.
 - Workspace URLs use HTTP Basic Auth on every request and WebSocket handshake.
 - One Ubuntu 24.04 LXD VM per user; each VM has a separate bridge.
@@ -68,7 +68,7 @@ The helper currently expects LXD at `/snap/bin/lxc`; verify that path on the hos
 ## 3. Create the API service account and writable user store
 
     sudo useradd --system --home /opt/dev-instance-manager --create-home --shell /usr/sbin/nologin devmanager
-    sudo install -d -o devmanager -g devmanager -m 0700 /var/lib/dev-instance-manager/accounts
+    sudo install -d -o devmanager -g devmanager -m 0700 /var/lib/dev-instance-manager-users
     sudo install -d -o root -g devmanager -m 0750 /etc/dev-instance-manager
     sudo visudo -f /etc/sudoers.d/dev-instance-manager
 
@@ -85,7 +85,7 @@ The API account store is writable by `devmanager` so the admin interface can cre
 Create the store directory as above, then provision the first admin from a trusted checkout installed at `/opt/dev-instance-manager`. Read the password from the terminal and pipe it to the script; do not put it in command-line arguments.
 
     read -rsp 'Admin-Passwort (mind. 12 Zeichen): ' PASSWORD; printf '\n'
-    printf '%s' "$PASSWORD" | sudo -u devmanager env DIM_USERS_FILE=/var/lib/dev-instance-manager/accounts/users.json node /opt/dev-instance-manager/infra/create-user.js admin admin --admin
+    printf '%s' "$PASSWORD" | sudo -u devmanager env DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json node /opt/dev-instance-manager/infra/create-user.js admin admin --admin
     unset PASSWORD
 
 The example creates an admin login named `admin` and a slug named `admin`. The admin account is for the dashboard; it does not get a normal user workspace. Use a unique, strong password.
@@ -101,7 +101,7 @@ Create `/etc/dev-instance-manager/api.env`:
     PORT=3000
     PUBLIC_BASE_URL=https://vs.code.de
     DEVVM_HELPER=/usr/local/sbin/devvm
-    DIM_USERS_FILE=/var/lib/dev-instance-manager/accounts/users.json
+    DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json
 
 Set owner/mode appropriately for the service and configure systemd to load this file. Run the API with working directory `/opt/dev-instance-manager/api`, bound only to `127.0.0.1:3000`.
 
