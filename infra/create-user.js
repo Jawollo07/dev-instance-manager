@@ -2,7 +2,7 @@
 'use strict'
 
 // Usage: read the password from stdin, never from command-line arguments:
-//   read -rsp 'Password: ' PASSWORD; printf '\n'; printf '%s' "$PASSWORD" | sudo -E node infra/create-user.js alice
+//   read -rsp 'Password: ' PASSWORD; printf '\n'; printf '%s' "$PASSWORD" | sudo node infra/create-user.js alice
 // Run as root; users.json must remain root-owned and unreadable by other users.
 
 const crypto = require('node:crypto')
