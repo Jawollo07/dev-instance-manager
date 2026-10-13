@@ -1,4 +1,5 @@
 'use strict'
+const { currentUser } = require('../lib/auth')
 const http = require('node:http')
 const { execFile } = require('node:child_process')
 const { promisify } = require('node:util')
@@ -7,19 +8,8 @@ const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
 const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 
-function userOf(req) {
-  const value = req.headers['x-authentik-username']
-  if (typeof value !== 'string') return null
-  const user = value.trim()
-  return user.length && user.length <= 128 && /^[a-zA-Z0-9@._+-]+$/.test(user) ? user : null
-}
 function allowedOrigin(req) { return ORIGIN ? req.headers.origin === ORIGIN : process.env.NODE_ENV !== 'production' }
-function requireUser(req, reply) {
-  const user = userOf(req)
-  if (!user) { reply.code(401).send({ error: 'Authentifizierung erforderlich.' }); return null }
-  return user
-}
-async function action(name, user) {
+function requireUser(req, reply) {\n  const user = currentUser(req)\n  if (!user) { reply.code(401).send({ error: 'Bitte anmelden.' }); return null }\n  return user\n}\nasync function action(name, user) {
   const result = await run('sudo', ['-n', HELPER, name, user], { timeout: name === 'create' ? 900000 : 30000, maxBuffer: 1048576 })
   return JSON.parse(result.stdout)
 }
@@ -92,7 +82,7 @@ module.exports = async function (fastify) {
     let path
     try { path = new URL(req.url, 'http://localhost').pathname } catch { return upgradeError(socket, 400, 'Bad Request') }
     if (path !== '/workspace' && !path.startsWith('/workspace/')) return
-    const user = userOf(req)
+    const user = currentUser(req)
     if (!user) return upgradeError(socket, 401, 'Unauthorized')
     if (ORIGIN && req.headers.origin !== ORIGIN) return upgradeError(socket, 403, 'Forbidden')
     try {
