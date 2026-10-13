@@ -65,7 +65,7 @@ async function readUsers() {
     throw new Error('Benutzerdatei kann nicht gelesen werden.')
   }
   if (!parsed || !Array.isArray(parsed.users)) throw new Error('Ungültiges Benutzerdateiformat.')
-  return parsed.users.filter(u =>
+  return parsed.users.map(u => u && ({ ...u, slug: u.slug || String(u.username || '').toLowerCase(), role: u.role || 'user' })).filter(u =>
     u && typeof u.username === 'string' && USERNAME_RE.test(u.username) &&
     typeof u.slug === 'string' && SLUG_RE.test(u.slug) &&
     typeof u.role === 'string' && ['user', 'admin'].includes(u.role) &&
