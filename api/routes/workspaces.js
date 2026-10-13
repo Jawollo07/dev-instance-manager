@@ -42,8 +42,13 @@ function cleanHeaders(headers, host, ip) {
   const out = { ...headers }
   for (const key of Object.keys(out)) {
     const lower = key.toLowerCase()
-    if (lower === 'authorization' || lower === 'proxy-authorization' || lower === 'cookie' ||
+    if (lower === 'authorization' || lower === 'proxy-authorization' ||
         lower === 'host' || lower.startsWith('x-forwarded-') || lower.startsWith('x-authentik-')) delete out[key]
+    if (lower === 'cookie') {
+      const filtered = String(out[key]).split(';').map(part => part.trim()).filter(part => !/^dim_session=/i.test(part))
+      if (filtered.length) out[key] = filtered.join('; ')
+      else delete out[key]
+    }
   }
   out.host = host
   out['x-forwarded-for'] = ip
