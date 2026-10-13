@@ -138,7 +138,7 @@ test('Basic Auth credentials for one slug cannot access another slug', async (t)
   assert.match(response.headers['www-authenticate'], /^Basic realm=/)
 })
 
-test('admin API denies a regular user's valid session', async (t) => {
+test('admin API denies a regular account session', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dim-admin-'))
   const file = path.join(dir, 'users.json')
   const oldFile = process.env.DIM_USERS_FILE
