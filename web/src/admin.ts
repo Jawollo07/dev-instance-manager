@@ -168,8 +168,8 @@ loginForm.addEventListener('submit', async event => {
   button.disabled = true
   try {
     await api('/api/auth/login', 'POST', { username: String(form.get('username') || ''), password: String(form.get('password') || '') })
+    showDashboard()
     await loadUsers()
-    if (!dashboard.hidden) showDashboard()
   } catch (err) { loginMessage.textContent = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen.' }
   finally { button.disabled = false }
 })
