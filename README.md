@@ -80,7 +80,9 @@ If LXD is not at `/snap/bin/lxc`, edit the helper to use its verified absolute p
 
     sudo useradd --system --home /opt/dev-instance-manager --create-home --shell /usr/sbin/nologin devmanager
     sudo install -d -o root -g devmanager -m 0750 /etc/dev-instance-manager
-    sudo install -o root -g devmanager -m 0640 /dev/null /etc/dev-instance-manager/users.json
+    printf '%s\n' '{"users":[]}' | sudo tee /etc/dev-instance-manager/users.json >/dev/null
+    sudo chown root:devmanager /etc/dev-instance-manager/users.json
+    sudo chmod 0640 /etc/dev-instance-manager/users.json
     sudo visudo -f /etc/sudoers.d/dev-instance-manager
 
 Sudoers rule:
