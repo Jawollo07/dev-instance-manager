@@ -10,7 +10,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const sessions = new Map()
 const USERNAME_RE = /^[a-zA-Z0-9@._+-]{1,64}$/
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
-const USERS_FILE = () => process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager/users.json'
+const USERS_FILE = () => process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager/accounts/users.json'
 
 function parseCookies(header = '') {
   const cookies = Object.create(null)
