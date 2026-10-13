@@ -18,7 +18,7 @@ test('health endpoint reports service readiness without exposing host details', 
 
 test('instance status requires a valid local session', async (t) => {
   const app = await build(t)
-  const response = await app.inject({ method: 'GET', url: '/api/instance' })
+  const response = await app.inject({ method: 'GET', url: '/api/admin/users' })
   assert.equal(response.statusCode, 401)
   assert.deepEqual(response.json(), { error: 'Bitte anmelden.' })
 })
