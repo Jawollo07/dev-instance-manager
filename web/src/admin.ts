@@ -182,8 +182,8 @@ refreshButton.addEventListener('click', () => void loadUsers())
 async function init() {
   try {
     await api('/api/auth/me')
+    showDashboard()
     await loadUsers()
-    if (!dashboard.hidden) showDashboard()
   } catch { showLogin() }
 }
 void init()
