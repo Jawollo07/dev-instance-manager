@@ -19,6 +19,7 @@ The Basic Auth username/password are the local user's username and password. A c
 - Start, stop or create a workspace.
 - Disable/enable users, reset passwords and delete a user's VM and account.
 - Enforce an eight-user workspace cap.
+- Trigger a backup of all `dev-*` VMs from the admin dashboard when the root-owned backup helper is installed.
 
 CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel, audit log viewer and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
 
@@ -74,7 +75,7 @@ The helper currently expects LXD at `/snap/bin/lxc`; verify that path on the hos
 
 Sudoers rule:
 
-    devmanager ALL=(root) NOPASSWD: /usr/local/sbin/devvm *
+    devmanager ALL=(root) NOPASSWD: /usr/local/sbin/devvm *, /usr/local/sbin/backup-devvm
 
 Keep `/usr/local/sbin/devvm`, cloud-init and the storage-pool file root-owned and not writable by the API service. Do not add `devmanager` to the `lxd` group; LXD access is effectively host-administrator access.
 
@@ -139,7 +140,7 @@ Only apply it after review and rollback planning. Do not flush the entire firewa
 
 ## 8. Backups
 
-The root backup helper exports all `dev-*` VMs:
+The root backup helper exports all `dev-*` VMs. Install it before using the dashboard's **Backup aller Workspaces** action:
 
     sudo install -m 0750 -o root -g root infra/backup-devvm.sh /usr/local/sbin/backup-devvm
     sudo /usr/local/sbin/backup-devvm
@@ -161,7 +162,7 @@ Backups use restrictive permissions and default to seven-day retention. Test a r
 ## Current limitations
 
 - No per-user resource-limit editor in the UI yet; defaults are 2 vCPU, 3 GiB RAM and 20 GiB disk.
-- No UI for restoring backups, viewing audit logs or scheduling backups.
+- No UI for restoring backups, viewing audit logs, editing resource limits or scheduling backups.
 - Disabling an account blocks new Basic Auth requests, but does not immediately revoke an already-authenticated browser's cached Basic Auth credentials; it will be rejected on the next request.
 - Admin sessions are in memory and disappear on API restart.
 - The implementation has not been validated on the actual LXD host and is not security-audited.
