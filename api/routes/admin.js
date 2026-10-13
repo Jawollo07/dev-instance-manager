@@ -60,7 +60,7 @@ module.exports = async function (fastify) {
     if (!access) return
     const username = req.body.username.trim()
     const slug = req.body.slug.trim().toLowerCase()
-    if (!USERNAME_RE.test(username) || !SLUG_RE.test(slug)) return reply.code(400).send({ error: 'Benutzername oder URL-Slug ungültig.' })
+    if (!USERNAME_RE.test(username) || !SLUG_RE.test(slug) || ['admin', 'api', 'assets'].includes(slug)) return reply.code(400).send({ error: 'Benutzername oder URL-Slug ungültig oder reserviert.' })
     if (access.users.some(user => user.username.toLowerCase() === username.toLowerCase())) return reply.code(409).send({ error: 'Benutzername bereits vergeben.' })
     if (access.users.some(user => user.slug === slug)) return reply.code(409).send({ error: 'URL-Slug bereits vergeben.' })
     if (access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
