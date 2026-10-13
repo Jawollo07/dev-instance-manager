@@ -6,7 +6,7 @@ const root = document.querySelector<HTMLDivElement>('#app')
 if (!root) throw new Error('App root not found')
 root.innerHTML = `
 <main class="shell">
-<header class="topbar"><div class="mark">⌘</div><div><p class="eyebrow">DEVELOPMENT PLATFORM</p><h1>Dev Instance Manager</h1></div><span class="private"><i></i> Private workspace</span></header>
+<header class="topbar"><div class="mark">⌘</div><div><p class="eyebrow">DEVELOPMENT PLATFORM</p><h1>Dev Instance Manager</h1></div><span class="private"><i></i> Private workspace</span><button id="logout" class="logout" type="button">Abmelden</button></header>
 <section class="intro"><p class="eyebrow">YOUR ENVIRONMENT</p><h2>Dein persönlicher Entwicklungsplatz.</h2><p class="sub">Eine isolierte Ubuntu-VM mit VS Code im Browser. Deine Projekte bleiben erhalten, wenn du die Instanz stoppst.</p></section>
 <section class="workspace"><div class="cardhead"><div class="vscode">VS</div><div class="name"><h3>Mein Workspace</h3><p id="username">Authentifizierung wird geprüft …</p></div><span id="status" class="pill"><i></i><span id="status-label">Lade Status</span></span></div>
 <div class="metrics"><div><small>CPU-Limit</small><b>2 vCPU</b></div><div><small>Arbeitsspeicher</small><b>3 GiB</b></div><div><small>Projektlaufwerk</small><b>20 GiB</b></div><div><small>Isolation</small><b>Eigene VM</b></div></div>
@@ -14,6 +14,37 @@ root.innerHTML = `
 <section class="features"><article><strong>⌁</strong><h3>Persistente Dateien</h3><p>Deine Projektdateien bleiben nach dem Stoppen erhalten.</p></article><article><strong>▣</strong><h3>Eigene VM</h3><p>Deine Laufzeit ist von anderen Workspaces getrennt und ressourcenbegrenzt.</p></article><article><strong>↗</strong><h3>Netzwerkregeln</h3><p>Interne Netze sind gesperrt. Öffentlicher Internetzugriff kann Datenabfluss ermöglichen.</p></article></section>
 <footer>Self-hosted · LXD · code-server <span>Aktionen werden serverseitig geprüft.</span></footer></main>
 `
+root.insertAdjacentHTML('afterbegin', `
+<section id="login-panel" class="login-panel" hidden>
+  <div class="login-card">
+    <div class="mark">⌘</div>
+    <p class="eyebrow">PRIVATE DEVELOPMENT PLATFORM</p>
+    <h1>Anmelden</h1>
+    <p class="login-copy">Melde dich mit deinem lokalen Dev-Instance-Manager-Konto an.</p>
+    <form id="login-form">
+      <label for="login-username">Benutzername</label>
+      <input id="login-username" name="username" autocomplete="username" maxlength="64" required />
+      <label for="login-password">Passwort</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required />
+      <button id="login-submit" class="primary" type="submit">Anmelden</button>
+      <p id="login-message" class="message" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</section>`)
+const dashboard = root.querySelector<HTMLElement>('.shell')
+const loginPanel = document.getElementById('login-panel') as HTMLElement
+const loginForm = document.getElementById('login-form') as HTMLFormElement
+const loginUsername = document.getElementById('login-username') as HTMLInputElement
+const loginPassword = document.getElementById('login-password') as HTMLInputElement
+const loginSubmit = document.getElementById('login-submit') as HTMLButtonElement
+const loginMessage = document.getElementById('login-message') as HTMLElement
+const logoutBtn = document.getElementById('logout') as HTMLButtonElement
+if (dashboard) dashboard.hidden = true
+const authCss = document.createElement('style')
+authCss.textContent = `
+[hidden]{display:none!important}.login-panel{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 15% 0%,#17213a,#0b0d12 55%)}.login-card{width:min(100%,420px);border:1px solid #30394b;background:#151b27;border-radius:18px;padding:30px;box-shadow:0 24px 70px #0005}.login-card .mark{margin-bottom:22px}.login-card h1{font-size:28px;margin:8px 0}.login-copy{font-size:13px;line-height:1.6;color:#a3aec2;margin-bottom:24px}.login-card form{display:flex;flex-direction:column;gap:9px}.login-card label{font-size:12px;color:#aebbd0;margin-top:8px}.login-card input{background:#0d121b;border:1px solid #394459;border-radius:8px;padding:12px;color:#edf1fa;font:inherit;min-width:0}.login-card input:focus{outline:2px solid #729bd7;outline-offset:1px}.login-card button{margin-top:14px}.logout{margin-left:8px}.topbar{flex-wrap:wrap}
+`
+document.head.append(authCss)
 const css = document.createElement('style')
 css.textContent = `
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#edf1fa;background:#0b0d12}*{box-sizing:border-box}body{margin:0;min-width:320px;min-height:100vh;background:radial-gradient(ellipse at 15% 0%,#17213a,#0b0d12 48%)}button{font:inherit}.shell{max-width:1050px;margin:auto;padding:32px 24px}.topbar{display:flex;align-items:center;gap:13px;border-bottom:1px solid #242a36;padding-bottom:24px}.mark{width:42px;height:42px;display:grid;place-items:center;border:1px solid #394b71;border-radius:12px;background:#1b2944;color:#b8d0ff;font-size:25px}.topbar h1{font-size:17px}.eyebrow{font-size:10px;letter-spacing:.16em;color:#8998b5;font-weight:700;margin:0 0 5px}.private{margin-left:auto;color:#aab6cc;font-size:12px;display:flex;align-items:center;gap:8px}.private i{width:7px;height:7px;background:#59d6a0;border-radius:50%}.intro{padding:42px 0 25px}.intro h2{font-size:clamp(26px,4vw,39px);letter-spacing:-.04em;line-height:1.15;margin:9px 0 13px}.sub{color:#a3aec2;max-width:670px;line-height:1.65;font-size:14px}.workspace{border:1px solid #30394b;background:linear-gradient(145deg,#191f2ef5,#11151ef5);border-radius:18px;padding:25px;box-shadow:0 24px 70px #0004}.cardhead{display:flex;align-items:center;gap:14px}.vscode{height:48px;width:48px;border-radius:13px;display:grid;place-items:center;background:#143e68;color:#9cd3ff;font-weight:800;border:1px solid #266aa4}.name{flex:1;min-width:0}.name h3{font-size:16px;margin:0 0 5px}.name p{font-size:12px;color:#98a5bb;overflow-wrap:anywhere}.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:99px;border:1px solid #3a4557;background:#1c2432;color:#c6d0e2;font-size:11px;white-space:nowrap}.pill i{height:7px;width:7px;border-radius:50%;background:#8b98ad}.pill.running{color:#94edc5;border-color:#28664f;background:#102b23}.pill.running i{background:#55d69d}.pill.error{color:#ffb4b4;border-color:#713c42;background:#321c21}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:25px 0;padding:18px 0;border-block:1px solid #2a3240}.metrics div{display:flex;flex-direction:column;gap:8px}.metrics small{font-size:11px;color:#8f9cb2}.metrics b{font-size:14px}.actions{display:flex;flex-wrap:wrap;gap:10px}button{border-radius:9px;border:1px solid #394459;padding:10px 14px;font-size:12px;font-weight:650;cursor:pointer;color:#dbe5f7;background:#202838}button:hover:not(:disabled){background:#2b364b;border-color:#60749a}button:disabled{opacity:.4;cursor:not-allowed}.primary{background:#b6d4ff;color:#0d1b30;border-color:#b6d4ff}.open{margin-left:auto;background:#173e35;border-color:#286e59;color:#a3f0cf}.refresh{font-size:20px;padding:5px 12px}.message{font-size:12px;line-height:1.5;color:#91a0b7;margin:16px 0 0;min-height:18px}.message.error{color:#ff9ca3}.message.success{color:#86e6b9}.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:17px}.features article{border:1px solid #242c3a;background:#121720b8;border-radius:14px;padding:18px}.features strong{color:#9fc7ff;font-size:20px}.features h3{font-size:13px;margin:14px 0 8px}.features p{font-size:12px;line-height:1.65;color:#98a5ba;margin:0}footer{display:flex;justify-content:space-between;gap:12px;margin-top:26px;font-size:11px;color:#69768b}footer span{text-align:right}@media(max-width:650px){.shell{padding:20px 14px}.intro{padding-top:30px}.workspace{padding:17px}.private{display:none}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:20px}.features{grid-template-columns:1fr}.open{margin-left:0}.cardhead{flex-wrap:wrap}.pill{margin-left:auto}.actions button{flex:1}.actions .refresh{flex:0 0 auto}footer{flex-direction:column}footer span{text-align:left}}
@@ -38,18 +69,26 @@ function render(vm: Instance) {
 async function api<T extends ErrorResponse>(url: string, method = 'GET'): Promise<T> {
  const response = await fetch(url, { method, credentials: 'same-origin', headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : '{}' })
  const data = await response.json() as T
- if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status))
+ if (!response.ok) { const error = new Error(data.error || ('HTTP ' + response.status)) as Error & { status?: number }; error.status = response.status; throw error }
  return data
 }
 async function refresh() {
  try {
   const data = await api<InstanceResponse & ErrorResponse>('/api/instance')
+  if (dashboard) dashboard.hidden = false
+  loginPanel.hidden = true
+  logoutBtn.hidden = false
   usernameEl.textContent = data.user; render(data.instance)
   if (data.instance.exists && data.instance.status === 'Running' && !data.instance.ip) setMessage('VM startet. IP wird noch ermittelt …')
   else if (data.instance.exists && data.instance.status === 'Running') setMessage('Deine VM läuft. VS Code kann geöffnet werden.', 'success')
   else if (!data.instance.exists) setMessage('Erstelle deinen Workspace, um loszulegen.')
   else setMessage('Deine Projektdateien bleiben beim Stoppen erhalten.')
  } catch (err) {
+  const status = (err as Error & { status?: number }).status
+  if (status === 401) { if (dashboard) dashboard.hidden = true; loginPanel.hidden = false; logoutBtn.hidden = true; loginUsername.focus(); loginMessage.textContent = 'Bitte anmelden, um deinen Workspace zu öffnen.'; createBtn.disabled = startBtn.disabled = stopBtn.disabled = openBtn.disabled = true; return }
+  if (dashboard) dashboard.hidden = false
+  loginPanel.hidden = true
+  logoutBtn.hidden = false
   statusEl.className = 'pill error'; statusLabel.textContent = 'Nicht verfügbar'; usernameEl.textContent = 'Authentifizierung erforderlich'
   setMessage(err instanceof Error ? err.message : 'Verbindung fehlgeschlagen', 'error')
   createBtn.disabled = startBtn.disabled = stopBtn.disabled = openBtn.disabled = true
@@ -65,6 +104,30 @@ async function perform(action: 'create' | 'start' | 'stop') {
  } catch (err) { setMessage(err instanceof Error ? err.message : 'Aktion fehlgeschlagen', 'error') }
  finally { busy = false; await refresh() }
 }
+loginForm.addEventListener('submit', async (event) => {
+ event.preventDefault()
+ loginSubmit.disabled = true
+ loginMessage.textContent = 'Anmeldung wird geprüft …'
+ try {
+  const response = await fetch('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: loginUsername.value, password: loginPassword.value }) })
+  const result = await response.json() as { user?: string; error?: string }
+  if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status))
+ } catch (err) {
+  loginMessage.textContent = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+  loginSubmit.disabled = false
+  return
+ }
+ loginPassword.value = ''
+ loginSubmit.disabled = false
+ await refresh()
+})
+logoutBtn.addEventListener('click', async () => {
+ logoutBtn.disabled = true
+ try { await api<{ ok: boolean; error?: string }>('/api/auth/logout', 'POST') } finally {
+  logoutBtn.disabled = false
+  await refresh()
+ }
+})
 createBtn.addEventListener('click', () => void perform('create')); startBtn.addEventListener('click', () => void perform('start')); stopBtn.addEventListener('click', () => void perform('stop')); refreshBtn.addEventListener('click', () => void refresh()); openBtn.addEventListener('click', () => window.location.assign('/workspace/'))
 void refresh()
 window.setInterval(() => { if (!busy) void refresh() }, 8000)
