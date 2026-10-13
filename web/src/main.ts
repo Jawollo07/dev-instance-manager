@@ -123,7 +123,7 @@ loginForm.addEventListener('submit', async (event) => {
 })
 logoutBtn.addEventListener('click', async () => {
  logoutBtn.disabled = true
- try { await api<{ ok: boolean }>('/api/auth/logout', 'POST') } finally {
+ try { await api<{ ok: boolean; error?: string }>('/api/auth/logout', 'POST') } finally {
   logoutBtn.disabled = false
   await refresh()
  }
