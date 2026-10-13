@@ -36,7 +36,7 @@ async function main() {
   const temp = file + '.tmp-' + process.pid
   await fs.writeFile(temp, JSON.stringify(store, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
   await fs.rename(temp, file)
-  await fs.chmod(file, 0o600)
+  await fs.chmod(file, 0o640)
   console.log(`Benutzer ${username} wurde ${index >= 0 ? 'aktualisiert' : 'angelegt'}.`)
 }
 
