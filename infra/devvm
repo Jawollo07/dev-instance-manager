@@ -40,7 +40,9 @@ print(json.dumps({"exists":True,"name":i.get("name",sys.argv[1]),"network":sys.a
 }
 allocate_network() {
   [[ -n "$octet" ]] && return
-  local n tmp
+  local n tmp allocated
+  allocated="$(find "$NETWORK_DIR" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9a-f]{32}' | wc -l)"
+  [[ "$allocated" -lt 8 ]] || die "Workspace-Limit erreicht: maximal 8 Benutzer-Workspaces"
   for n in $(seq 1 254); do
     if ! grep -hqx "$n" "$NETWORK_DIR"/* 2>/dev/null; then octet="$n"; break; fi
   done
@@ -51,7 +53,7 @@ allocate_network() {
 ensure_network() {
   allocate_network
   if ! "$LXC" network show "$network" >/dev/null 2>&1; then
-    "$LXC" network create "$network" bridge "ipv4.address=10.220.$octet.1/24" ipv4.nat=true ipv6.address=none
+    "$LXC" network create "$network" --type=bridge "ipv4.address=10.220.$octet.1/24" ipv4.nat=true ipv6.address=none
   fi
 }
 case "$action" in

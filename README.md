@@ -9,6 +9,7 @@ Self-hosted management for persistent per-user VS Code Web workspaces on LXD VMs
 - Existing Vite + TypeScript frontend and Fastify API.
 - One Ubuntu 24.04 LXD VM per Authentik username.
 - Every VM has a separate LXD bridge, 2 vCPU, 3 GiB RAM and a 20 GiB root disk.
+- The root-owned helper caps allocations at eight per-user workspaces.
 - Persistent project directory: /home/coder/project on the VM disk.
 - code-server listens on port 8080 on the private VM network; the API proxies /workspace/ and WebSockets.
 - The API uses a fixed root-owned helper via sudo; it does not access the LXD socket directly.
@@ -21,7 +22,8 @@ All endpoints require X-authentik-username from the trusted reverse proxy:
 - POST /api/instance/create
 - POST /api/instance/start
 - POST /api/instance/stop
-- /workspace/ proxies code-server and WebSockets.
+- GET /api/health returns a minimal service-health response.
+- `/workspace/` proxies code-server and WebSockets.
 
 Bind the API only to loopback. Never expose port 3000 directly. NGINX must overwrite X-authentik-username with the authenticated response header, never trust a client-supplied value.
 
@@ -106,16 +108,26 @@ Use infra/authentik-nginx.example.conf as a reference, not a complete drop-in vh
 
 Do not expose code-server port 8080 or API port to LAN/WAN. code-server uses --auth none because the authenticated reverse proxy and API enforce access; direct reachability is a critical security failure.
 
-### 7. Test before users
+### 7. Back up persistent workspaces
 
-1. Unauthenticated dashboard/API/workspace requests must fail.
-2. Create a test workspace and wait for cloud-init/code-server to finish.
-3. Test editor, terminal, Git and WebSockets.
-4. Stop/start and confirm project files persist.
-5. From the VM, test host, LAN, VPN, Docker bridge and other workspace access; private destinations should fail.
-6. Verify intended egress.
-7. Test limits with multiple VMs.
-8. Back up and restore a VM disk.
+Install the backup helper as a root-owned executable and run it as root:
+
+    sudo install -m 0750 -o root -g root infra/backup-devvm.sh /usr/local/sbin/backup-devvm
+    sudo /usr/local/sbin/backup-devvm
+
+Backups are written to `/var/backups/dev-instance-manager` with mode 0600; the directory is mode 0700. The script exports `dev-*` instances and prunes backup files older than seven days. Set `DEVVM_BACKUP_DIR` or `DEVVM_BACKUP_RETENTION_DAYS` for a different destination/retention. Put the script in a root-owned systemd timer or cron job only after testing a restore. Store an additional copy on a different disk or host; a backup on the same physical disk is not disaster recovery.
+
+### 8. Test before users
+
+1. Run `cd api && pnpm test`; the new tests cover the health endpoint and identity-header rejection.
+2. Unauthenticated dashboard/API/workspace requests must fail.
+3. Create a test workspace and wait for cloud-init/code-server to finish.
+4. Test editor, terminal, Git and WebSockets.
+5. Stop/start and confirm project files persist.
+6. From the VM, test host, LAN, VPN, Docker bridge and other workspace access; private destinations should fail.
+7. Verify intended egress.
+8. Test limits with multiple VMs.
+9. Back up and restore a VM disk.
 
 ## Resource budget
 
@@ -125,4 +137,4 @@ Per user: 2 vCPU, 3 GiB RAM, 20 GiB virtual disk. Eight active VMs can use up to
 
 Implemented: per-user VM naming, create/start/stop/status helper, per-user bridge allocation, persistent project directory, identity/origin checks, HTTP/WebSocket workspace proxy and dashboard.
 
-Not implemented: VM deletion, admin/user management UI, automated backups, strict public egress allowlist, automatic resource reclamation and end-to-end security tests. First boot needs Internet access for package/code-server installation. This branch has not been tested on the actual LXD host; validate LXD CLI syntax, Authentik headers, nftables behavior and VM boot before production.
+Not implemented: VM deletion, admin/user management UI, a configured automatic backup schedule, strict public egress allowlist, automatic resource reclamation and end-to-end security tests. A backup script is included, but it must be scheduled and restore-tested by the operator. First boot needs Internet access for package/code-server installation. This branch has not been tested on the actual LXD host; validate LXD CLI syntax, Authentik headers, nftables behavior and VM boot before production.
