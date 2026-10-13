@@ -6,6 +6,9 @@ const { promisify } = require('node:util')
 const { readUsers, verifyPassword, SLUG_RE } = require('../lib/auth')
 const run = promisify(execFile)
 const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
+const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
+if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
+function originAllowed(req) { if (ORIGIN) return req.headers.origin === undefined ? ['GET', 'HEAD', 'OPTIONS'].includes(req.method) : req.headers.origin === ORIGIN; return process.env.NODE_ENV !== 'production' }
 
 async function identify(slug, header) {
   if (!SLUG_RE.test(slug || '')) return null
@@ -58,6 +61,7 @@ module.exports = async function (fastify) {
     try { user = await identify(slug, req.headers.authorization) }
     catch (err) { req.log.error({ err }, 'workspace authentication failed'); return reply.code(503).send({ error: 'Authentifizierung momentan nicht verfügbar.' }) }
     if (!user) return challenge(reply)
+    if (!originAllowed(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
     let vm
     try { vm = await status(slug) }
     catch (err) { req.log.error({ err }, 'workspace status failed'); return reply.code(503).send({ error: 'Workspace-Status nicht verfügbar.' }) }
