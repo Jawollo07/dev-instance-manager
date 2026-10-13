@@ -36,7 +36,7 @@ module.exports = async function (fastify) {
     const access = await admin(req, reply)
     if (!access) return
     try {
-      const result = await run('sudo', ['-n', BACKUP_HELPER], { timeout: 1800000, maxBuffer: 1048576 })
+      const result = await run('sudo', ['-n', BACKUP_HELPER], { timeout: 3600000, maxBuffer: 1048576 })
       reply.header('cache-control', 'no-store')
       return { ok: true, output: result.stdout.slice(-8000) }
     } catch (err) {
