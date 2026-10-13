@@ -12,19 +12,44 @@ test('health endpoint reports service readiness without exposing host details', 
   assert.equal(response.headers['cache-control'], 'no-store')
 })
 
-test('instance status requires a trusted identity header', async (t) => {
+test('instance status requires a valid local session', async (t) => {
   const app = await build(t)
   const response = await app.inject({ method: 'GET', url: '/api/instance' })
   assert.equal(response.statusCode, 401)
-  assert.deepEqual(response.json(), { error: 'Authentifizierung erforderlich.' })
+  assert.deepEqual(response.json(), { error: 'Bitte anmelden.' })
 })
 
-test('instance status rejects malformed identity values before calling the host helper', async (t) => {
+test('client-supplied identity headers cannot impersonate a user', async (t) => {
   const app = await build(t)
   const response = await app.inject({
     method: 'GET',
     url: '/api/instance',
-    headers: { 'x-authentik-username': '../root;id' }
+    headers: {
+      'x-authentik-username': 'alice',
+      'x-user': 'alice',
+      'x-forwarded-user': 'alice'
+    }
   })
   assert.equal(response.statusCode, 401)
+})
+
+test('login rejects unknown users with a generic error', async (t) => {
+  const app = await build(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'nobody', password: 'this-is-a-long-password' }
+  })
+  assert.equal(response.statusCode, 401)
+  assert.deepEqual(response.json(), { error: 'Benutzername oder Passwort ungültig.' })
+})
+
+test('login rejects invalid request shapes', async (t) => {
+  const app = await build(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'alice', password: 'long-password', isAdmin: true }
+  })
+  assert.equal(response.statusCode, 400)
 })
