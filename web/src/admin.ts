@@ -566,12 +566,6 @@ function buildUserCard(user: User): HTMLElement {
     const roleButton = el('button', 'secondary', 'Zum Admin machen')
     roleButton.addEventListener('click', () => void changeRole(user, 'admin', roleButton))
     actions.append(roleButton)
-    for (const operation of ['create', 'start', 'stop'] as const) {
-      const button = el('button', 'secondary', USER_ACTION_LABELS[operation])
-      button.addEventListener('click', () => void instanceAction(user, operation, button))
-      actions.append(button)
-    }
-
     const toggle = el('button', 'secondary', user.disabled ? 'Entsperren' : 'Sperren')
     toggle.addEventListener('click', () => void toggleUser(user, toggle))
     actions.append(toggle)
