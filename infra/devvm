@@ -67,7 +67,7 @@ case "$action" in
     tmpdir="$(mktemp -d /run/devvm-exec.XXXXXX)"
     trap 'rm -rf "$tmpdir"' EXIT
     set +e
-    "$LXC" exec "$vm" --user 1000 --group 1000 -- bash -lc "$3" >"$tmpdir/stdout" 2>"$tmpdir/stderr"
+    "$LXC" exec "$vm" -- runuser --login coder --command "$3" >"$tmpdir/stdout" 2>"$tmpdir/stderr"
     rc=$?
     set -e
     python3 - "$tmpdir/stdout" "$tmpdir/stderr" "$rc" "$username" <<'PY'
