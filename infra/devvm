@@ -86,7 +86,7 @@ PY
     exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
     if [[ "$exists" != true ]]; then
       "$LXC" init ubuntu:24.04 "$vm" --vm --network "$network" --storage "$pool" --config limits.cpu=2 --config limits.memory=3GiB --device root,size=20GiB
-      cloud_init="$(sed "s|__WORKSPACE_BASE_PATH__|/$username|g" "$CLOUD_INIT")"
+      cloud_init="$(sed -e "s|__WORKSPACE_BASE_PATH__|/$username|g" -e "s|__WORKSPACE_PROXY_URL__|http://10.220.$octet.1:3128|g" "$CLOUD_INIT")"
       "$LXC" config set "$vm" cloud-init.user-data "$cloud_init"
     fi
     current="$(status_json)"
