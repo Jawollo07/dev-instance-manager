@@ -16,7 +16,7 @@ write_files:
     permissions: "0644"
     content: |
       [Unit]
-      Description=VS Code Web for sandbox user
+      Description=Self-hosted VS Code Web workspace
       After=network-online.target
       Wants=network-online.target
       [Service]
@@ -25,7 +25,8 @@ write_files:
       Group=coder
       WorkingDirectory=/home/coder/project
       Environment=HOME=/home/coder
-      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check
+      # The manager replaces this with the user's URL slug during provisioning.
+      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --base-path __WORKSPACE_BASE_PATH__ --auth none --disable-telemetry --disable-update-check
       Restart=on-failure
       RestartSec=3
       NoNewPrivileges=true
