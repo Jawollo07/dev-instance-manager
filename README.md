@@ -28,7 +28,7 @@ CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCP
 
 ## Architecture
 
-- Fastify API bound to loopback behind NGINX.
+- Fastify is the single application entry point, bound to loopback behind NGINX. It serves the built admin frontend at `/admin`, handles `/api/*`, and proxies workspace slugs such as `/test` directly to the matching VM. NGINX only terminates TLS and forwards requests/WebSocket upgrades to Fastify.
 - Local user store at `/var/lib/dev-instance-manager-users/users.json`, containing salted scrypt hashes, usernames, URL slugs and roles.
 - Admin interface uses an eight-hour opaque in-memory session in an `HttpOnly; SameSite=Strict` cookie, with `Secure` in production. API restart invalidates sessions.
 - Workspace URLs use HTTP Basic Auth on every request and WebSocket handshake.
@@ -116,14 +116,11 @@ Install dependencies and build:
     pnpm install --frozen-lockfile
     pnpm build
 
+The API serves the generated `web/dist/admin.html` and `web/dist/assets/*` itself. Rebuild the frontend after UI changes; a separate Vite server is only for frontend development, not production routing.
+
 ## 6. NGINX and HTTPS
 
-Use `infra/nginx-local-auth.example.conf` as a reference. Replace the TLS paths and root directory, and add both `limit_req_zone` directives and the `map` directive to the NGINX `http {}` context. The configuration routes:
-
-- `/admin` to the dashboard HTML.
-- `/api/*` to the API.
-- `/<slug>` and `/<slug>/*` to the Basic Auth workspace proxy.
-- Static assets to the built frontend.
+Use `infra/nginx-local-auth.example.conf` as a reference. Replace the TLS paths and add the `limit_req_zone` and `map` directives to the NGINX `http {}` context. NGINX does not serve frontend files or decide workspace routes: every request, including `/admin`, `/assets/*`, `/api/*`, `/<slug>` and `/<slug>/*`, is forwarded to Fastify on `127.0.0.1:3000`. Fastify serves the admin UI and static assets, runs API endpoints, and proxies authenticated workspace traffic and WebSocket upgrades.
 
 Check before reload:
 
