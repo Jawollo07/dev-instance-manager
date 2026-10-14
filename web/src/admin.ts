@@ -129,7 +129,7 @@ root.innerHTML = `
         <div class="section-head">
           <div>
             <h2>Benutzer &amp; Instanzen</h2>
-            <p>Jeder Workspace ist unter seiner Route erreichbar.</p>
+            <p>Admins können jeden Workspace direkt öffnen. Normale Benutzer bleiben auf ihre eigene Instanz beschränkt.</p>
           </div>
           <div class="head-actions">
             <button id="backup" class="secondary">Backup aller Workspaces</button>
@@ -598,7 +598,7 @@ async function loadUsers() {
     pageMessage.textContent = 'Stand: ' + new Date().toLocaleTimeString()
   } catch (err) {
     if (err instanceof Error && /401|403|Admin-Berechtigung/.test(err.message)) {
-      showLogin('Dieses Konto hat keine Admin-Berechtigung. Bitte als Admin anmelden.')
+      window.location.replace('/')
     } else {
       pageMessage.textContent = err instanceof Error ? err.message : 'Laden fehlgeschlagen.'
     }
@@ -800,7 +800,7 @@ async function init() {
     await loadUsers()
     await loadAudit()
   } catch {
-    showLogin()
+    window.location.replace('/')
   }
 }
 

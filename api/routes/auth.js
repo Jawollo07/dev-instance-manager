@@ -9,6 +9,10 @@ function allowedOrigin(req) {
   return ORIGIN ? req.headers.origin === ORIGIN : process.env.NODE_ENV !== 'production'
 }
 
+function destinationFor(user) {
+  return user.role === 'admin' ? '/admin' : '/' + encodeURIComponent(user.slug) + '/'
+}
+
 module.exports = async function (fastify) {
   fastify.post('/api/auth/login', {
     bodyLimit: 2048,
@@ -34,13 +38,12 @@ module.exports = async function (fastify) {
       const user = users.find(candidate => candidate.username === username)
       const valid = await verifyPassword(req.body.password, user)
       if (!valid) {
-        // A small fixed delay makes simple online password guessing less convenient.
         await new Promise(resolve => setTimeout(resolve, 250))
         return reply.code(401).send({ error: 'Benutzername oder Passwort ungültig.' })
       }
       setSessionCookie(reply, createSession(user.username))
       reply.header('cache-control', 'no-store')
-      return { user: user.username }
+      return { user: user.username, role: user.role, redirectTo: destinationFor(user) }
     } catch (err) {
       req.log.error({ err }, 'login failed')
       return reply.code(503).send({ error: 'Anmeldung momentan nicht möglich.' })
@@ -48,10 +51,21 @@ module.exports = async function (fastify) {
   })
 
   fastify.get('/api/auth/me', async (req, reply) => {
-    const user = currentUser(req)
+    const username = currentUser(req)
     reply.header('cache-control', 'no-store')
-    if (!user) return reply.code(401).send({ error: 'Bitte anmelden.' })
-    return { user }
+    if (!username) return reply.code(401).send({ error: 'Bitte anmelden.' })
+    try {
+      const user = (await readUsers()).find(candidate => candidate.username === username && candidate.disabled !== true)
+      if (!user) {
+        destroySession(req)
+        clearSessionCookie(reply)
+        return reply.code(401).send({ error: 'Bitte erneut anmelden.' })
+      }
+      return { user: user.username, role: user.role, redirectTo: destinationFor(user) }
+    } catch (err) {
+      req.log.error({ err }, 'session lookup failed')
+      return reply.code(503).send({ error: 'Sitzung momentan nicht verfügbar.' })
+    }
   })
 
   fastify.post('/api/auth/logout', async (req, reply) => {
