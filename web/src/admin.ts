@@ -129,7 +129,7 @@ root.innerHTML = `
         <div class="section-head">
           <div>
             <h2>Benutzer &amp; Instanzen</h2>
-            <p>Jeder Workspace ist unter seiner Route erreichbar.</p>
+            <p>Admins können jeden Workspace direkt öffnen. Normale Benutzer bleiben auf ihre eigene Instanz beschränkt.</p>
           </div>
           <div class="head-actions">
             <button id="backup" class="secondary">Backup aller Workspaces</button>
