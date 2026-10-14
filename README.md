@@ -23,8 +23,10 @@ This does not mean the editor pixels are server-rendered: VS Code Web is a brows
 - Enforce an eight-user workspace cap.
 - Trigger a backup of all `dev-*` VMs from the admin dashboard when the root-owned backup helper is installed.
 - Run a manually entered shell command across all running user workspaces and inspect each instance's exit code, stdout and stderr. Commands run as the unprivileged `coder` user, not as root; stopped/missing workspaces are skipped.
+- View the latest 100 audit events in the admin dashboard or query `/api/admin/audit?limit=100`. Events include admin identity, action, target, result and limited metadata; passwords and shell command text are intentionally not stored.
+- Audit records are appended to `audit.jsonl` beside the configured users file (default `/var/lib/dev-instance-manager-users/audit.jsonl`) with restrictive file permissions.
 
-CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel, audit log viewer and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
+CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
 
 **Security status:** starter implementation only, not a security audit. Test routing and WebSockets end-to-end before exposing it to users.
 
