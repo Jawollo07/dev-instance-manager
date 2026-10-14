@@ -9,7 +9,9 @@ Self-hosted administration for up to eight persistent VS Code Web workspaces on 
 - `https://vs.code.de/test23` — another independent workspace and independent credentials.
 - `https://vs.code.de/` redirects to `/admin`.
 
-The Basic Auth username/password are the local user's username and password. A credential is accepted only when both the username and requested URL slug match the same enabled workspace account. Requests and WebSocket upgrades are authenticated before proxying, and the Basic Auth header is never forwarded to code-server. All traffic must use HTTPS.
+The workspace application itself is **code-server**, installed and run inside each VM. The browser opens `vs.code.de/<slug>/`; it must not be redirected to `vscode.dev`, an external VS Code host, or a per-VM address. Fastify authenticates every normal request and WebSocket handshake, then proxies it privately to that user's VM. code-server receives its own `--base-path /<slug>` prefix, so generated asset, API, terminal and WebSocket URLs remain beneath the public slug. The Basic Auth header is never forwarded to code-server. All traffic must use HTTPS.
+
+This does not mean the editor pixels are server-rendered: VS Code Web is a browser application, but its HTML, JavaScript, API calls and WebSocket connection are served through this server's domain. Marketplace/download services used by extensions may still require outbound Internet access from the server or workspace.
 
 ## Admin interface features
 
@@ -24,18 +26,18 @@ The Basic Auth username/password are the local user's username and password. A c
 
 CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel, audit log viewer and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
 
-**Security status:** starter implementation only, not a security audit. It has not been end-to-end tested on the target Ubuntu/LXD host. Do not expose it to users until the network, VM boot, proxy and restore flows are tested.
+**Security status:** starter implementation only, not a security audit. Test routing and WebSockets end-to-end before exposing it to users.
 
 ## Architecture
 
-- Fastify is the single application entry point, bound to loopback behind NGINX. It serves the built admin frontend at `/admin`, handles `/api/*`, and proxies workspace slugs such as `/test` directly to the matching VM. NGINX only terminates TLS and forwards requests/WebSocket upgrades to Fastify.
+- Fastify is the single application entry point, bound to loopback behind NGINX. It serves the built admin frontend at `/admin`, handles `/api/*`, and proxies workspace slugs directly to the matching VM. NGINX only terminates TLS and forwards requests/WebSocket upgrades to Fastify.
 - Local user store at `/var/lib/dev-instance-manager-users/users.json`, containing salted scrypt hashes, usernames, URL slugs and roles.
 - Admin interface uses an eight-hour opaque in-memory session in an `HttpOnly; SameSite=Strict` cookie, with `Secure` in production. API restart invalidates sessions.
 - Workspace URLs use HTTP Basic Auth on every request and WebSocket handshake.
 - One Ubuntu 24.04 LXD VM per user; each VM has a separate bridge.
 - VM names and network names derive from a hash of the validated URL slug.
 - Projects persist on the VM disk under `/home/coder/project`.
-- code-server listens on port 8080 on its private VM network, with a per-user base path.
+- code-server listens on port 8080 on its private VM network with a per-workspace base path.
 - API calls the fixed root-owned helper through sudo; it does not access the LXD socket directly.
 
 ## 1. Inspect the host
@@ -67,36 +69,11 @@ Set the exact name of the LXD storage pool:
 
 The helper currently expects LXD at `/snap/bin/lxc`; verify that path on the host before installing.
 
-## 3. Create the API service account and writable user store
+## 3. Configure API and users
 
-    sudo useradd --system --home /opt/dev-instance-manager --create-home --shell /usr/sbin/nologin devmanager
-    sudo install -d -o devmanager -g devmanager -m 0700 /var/lib/dev-instance-manager-users
-    sudo install -d -o root -g devmanager -m 0750 /etc/dev-instance-manager
-    sudo visudo -f /etc/sudoers.d/dev-instance-manager
+Keep the user store root-inaccessible to untrusted accounts, install the root-owned helper, and provision an initial administrator with `infra/create-user.js`. See the existing deployment instructions and sudoers policy before changing service ownership.
 
-Sudoers rule:
-
-    devmanager ALL=(root) NOPASSWD: /usr/local/sbin/devvm *, /usr/local/sbin/backup-devvm
-
-Keep `/usr/local/sbin/devvm`, cloud-init and the storage-pool file root-owned and not writable by the API service. Do not add `devmanager` to the `lxd` group; LXD access is effectively host-administrator access.
-
-The API account store is writable by `devmanager` so the admin interface can create accounts and reset passwords. That is a deliberate trust boundary: a compromise of the API process can alter application accounts, but must not grant direct LXD/socket or arbitrary root access.
-
-## 4. Bootstrap the first administrator
-
-Create the store directory as above, then provision the first admin from a trusted checkout installed at `/opt/dev-instance-manager`. Read the password from the terminal and pipe it to the script; do not put it in command-line arguments.
-
-    read -rsp 'Admin-Passwort (mind. 12 Zeichen): ' PASSWORD; printf '\n'
-    printf '%s' "$PASSWORD" | sudo -u devmanager env DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json node /opt/dev-instance-manager/infra/create-user.js admin admin --admin
-    unset PASSWORD
-
-The example creates an admin login named `admin` and a slug named `admin`. The admin account is for the dashboard; it does not get a normal user workspace. Use a unique, strong password.
-
-The script accepts `<username> <slug> [--admin]`. User slugs must be lowercase letters, numbers and hyphens, start with a letter or number, and be at most 32 characters.
-
-## 5. Configure the API
-
-Create `/etc/dev-instance-manager/api.env`:
+Production environment:
 
     NODE_ENV=production
     HOST=127.0.0.1
@@ -105,66 +82,34 @@ Create `/etc/dev-instance-manager/api.env`:
     DEVVM_HELPER=/usr/local/sbin/devvm
     DIM_USERS_FILE=/var/lib/dev-instance-manager-users/users.json
 
-Set owner/mode appropriately for the service and configure systemd to load this file. Run the API with working directory `/opt/dev-instance-manager/api`, bound only to `127.0.0.1:3000`.
+Build the API and frontend with the repository's lockfiles. The API serves generated `web/dist/admin.html` and `web/dist/assets/*` itself; Vite is only for development.
 
-Install dependencies and build:
+## 4. NGINX and HTTPS
 
-    cd /opt/dev-instance-manager/api
-    pnpm install --frozen-lockfile
-    pnpm test
-    cd /opt/dev-instance-manager/web
-    pnpm install --frozen-lockfile
-    pnpm build
+Use `infra/nginx-local-auth.example.conf` as a reference. NGINX does not serve frontend files or decide workspace routes: every request, including `/admin`, `/assets/*`, `/api/*`, `/<slug>` and `/<slug>/*`, is forwarded to Fastify. Fastify serves the admin UI and assets, runs API endpoints, and proxies authenticated workspace traffic and WebSocket upgrades. Do not expose API port 3000 or code-server port 8080 directly.
 
-The API serves the generated `web/dist/admin.html` and `web/dist/assets/*` itself. Rebuild the frontend after UI changes; a separate Vite server is only for frontend development, not production routing.
+## 5. Network isolation and backups
 
-## 6. NGINX and HTTPS
+Review `infra/devsandbox.nft.example` against the host firewall before applying it; do not flush the whole firewall. Verify VM-to-host/LAN/VPN denial, bridge isolation, DNS and IPv6. Strict egress allowlisting is unfinished, so arbitrary workspace code may access the Internet.
 
-Use `infra/nginx-local-auth.example.conf` as a reference. Replace the TLS paths and add the `limit_req_zone` and `map` directives to the NGINX `http {}` context. NGINX does not serve frontend files or decide workspace routes: every request, including `/admin`, `/assets/*`, `/api/*`, `/<slug>` and `/<slug>/*`, is forwarded to Fastify on `127.0.0.1:3000`. Fastify serves the admin UI and static assets, runs API endpoints, and proxies authenticated workspace traffic and WebSocket upgrades.
+Install and test `infra/backup-devvm.sh` before relying on backups. Test restore, and keep a copy on another disk or host. Deleting a user deletes the VM and its project disk.
 
-Check before reload:
+## Validation checklist
 
-    sudo nginx -t
-
-Do not expose API port 3000 or code-server port 8080 directly. code-server is configured with `--auth none` because the API proxy performs Basic Auth; direct reachability to port 8080 would bypass that protection. The proxy must pass Authorization to the API, which validates it, and the API must strip it before sending requests upstream.
-
-## 7. Network isolation
-
-Review `infra/devsandbox.nft.example` against the host's current firewall:
-
-    sudo nft -c -f infra/devsandbox.nft.example
-
-Only apply it after review and rollback planning. Do not flush the entire firewall. Verify DHCP, VM-to-host denial, VM-to-LAN/VPN denial, isolation between bridges, DNS and IPv6. The current example allows outbound traffic to public IPv4 addresses, so arbitrary code can exfiltrate data. Strict egress allowlisting remains unfinished.
-
-## 8. Backups
-
-The root backup helper exports all `dev-*` VMs. Install it before using the dashboard's **Backup aller Workspaces** action:
-
-    sudo install -m 0750 -o root -g root infra/backup-devvm.sh /usr/local/sbin/backup-devvm
-    sudo /usr/local/sbin/backup-devvm
-
-Backups use restrictive permissions and default to seven-day retention. Test a restore before scheduling it. Keep another copy on a different disk or host; same-disk backups are not disaster recovery. **Deleting a user from the admin interface deletes the VM and its project disk. Back it up first.**
-
-## 9. Validation checklist
-
-1. Confirm `/admin` requires an admin session and a normal user gets HTTP 403 from admin APIs.
-2. Create a user and verify `https://vs.code.de/<slug>` prompts for Basic Auth.
-3. Confirm that credentials for one slug do not work on another slug.
-4. Verify browser editor, terminal, Git and WebSockets.
-5. Stop/start the VM and verify project files persist.
-6. From the VM, test host, LAN, VPN, Docker and other-workspace access.
-7. Verify intended egress, DNS and IPv6 behavior.
-8. Test all eight allocations, backups and restore.
-9. Verify NGINX rate limiting and HTTPS cookie flags.
+1. Confirm `/admin` is served by this host and admin APIs require a session.
+2. Create a workspace and verify `https://vs.code.de/<slug>/` loads.
+3. In browser DevTools Network, confirm workspace HTML, scripts, `/api` calls and WebSockets use `vs.code.de/<slug>/...`, not `vscode.dev` or the VM IP.
+4. Verify the terminal, editor, extensions, reload and reconnect after restarting the VM.
+5. Confirm credentials for one slug do not work on another slug.
+6. Test all eight allocations, backups and restore.
 
 ## Broadcast commands
 
-The admin dashboard includes a **Befehl auf allen Instanzen ausführen** panel. It sends the command to every configured user workspace that currently exists and is running. Each command is executed inside that VM as the named unprivileged `coder` account via `runuser`; it is not executed as root. Stopped or missing instances are reported as skipped. Output and exit codes are shown separately per workspace. The command is arbitrary shell input, so only trusted administrators should have dashboard access. Review commands carefully before confirming, especially commands that modify or delete files. The feature requires the updated `infra/devvm` helper to be installed at `/usr/local/sbin/devvm` on the host; re-install it after updating the repository.
+The admin dashboard's broadcast command runs on every existing running workspace as the unprivileged `coder` user. Stopped or missing workspaces are skipped. Only trusted administrators should have access.
 
 ## Current limitations
 
-- No per-user resource-limit editor in the UI yet; defaults are 2 vCPU, 3 GiB RAM and 20 GiB disk.
-- No UI for restoring backups, viewing audit logs, editing resource limits or scheduling backups.
-- Disabling an account blocks new Basic Auth requests, but does not immediately revoke an already-authenticated browser's cached Basic Auth credentials; it will be rejected on the next request.
+- No per-user resource-limit editor in the UI; defaults are 2 vCPU, 3 GiB RAM and 20 GiB disk.
+- No UI for restoring backups, viewing audit logs or scheduling backups.
 - Admin sessions are in memory and disappear on API restart.
-- The implementation has not been validated on the actual LXD host and is not security-audited.
+- The implementation still requires end-to-end validation on the actual LXD host and is not security-audited.
