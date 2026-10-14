@@ -40,7 +40,7 @@ Self-hosted management for up to **eight persistent VS Code Web workspaces**, wi
 - Each user gets a separate LXD VM and private bridge.
 - The VS Code Web interface is provided by code-server inside that VM.
 - Project files persist on the VM disk under `/home/coder/project` when the VM is stopped and started again.
-- Each workspace has a slug-based URL and its own HTTP Basic Authentication credentials.
+- Each workspace has a slug-based URL. Users are restricted to their assigned workspace; enabled admin accounts can open any workspace after signing in. HTTP Basic Auth remains supported for compatible clients.
 - The helper configures a baseline of **2 vCPU, 3 GiB RAM and 20 GiB disk** per workspace. These values are not currently editable in the dashboard.
 - The extension gallery is configured to use a same-origin Open VSX reverse-proxy route.
 
@@ -50,10 +50,10 @@ Example public URLs:
 
 | URL | Purpose |
 | --- | --- |
-| `https://vs.code.de/` | Redirects to the admin interface |
+| `https://vs.code.de/` | Shared login; admins go to `/admin`, users go to their own workspace |
 | `https://vs.code.de/admin` | Admin login and management dashboard |
 | `https://vs.code.de/test1/` | Workspace for the `test1` slug |
-| `https://vs.code.de/test23/` | A different workspace, with separate credentials |
+| `https://vs.code.de/test23/` | A different workspace; admins can also open it after signing in |
 | `https://vs.code.de/api/health` | API health endpoint |
 
 The intended request path is:
@@ -73,7 +73,7 @@ Fastify API ─── local account store / audit log
                                          └── code-server :8080
 ```
 
-NGINX should forward all paths to Fastify. Fastify serves the built admin frontend, handles API requests, checks workspace Basic Auth, and proxies HTTP and WebSocket traffic to the matching VM. Do not publish the Fastify port or the VM's code-server port directly to the Internet.
+NGINX should forward all paths to Fastify. Fastify serves the shared login frontend, handles API requests, checks role-aware session/Basic Auth for workspace access, and proxies HTTP and WebSocket traffic to the matching VM. Admins can access any valid workspace slug; regular users can access only their assigned slug. Do not publish the Fastify port or the VM's code-server port directly to the Internet.
 
 The editor itself is a browser application, not a server-rendered desktop. Its application assets, API calls and WebSocket connection should nevertheless use the public `vs.code.de/<slug>/...` route rather than a VM address or an unrelated VS Code host.
 
