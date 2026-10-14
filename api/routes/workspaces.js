@@ -252,7 +252,7 @@ module.exports = async function (fastify) {
     const slug = url.pathname.split('/')[1]
     if (!SLUG_RE.test(slug || '') || ['admin', 'api', 'assets'].includes(slug)) return
     let user
-    try { user = await identify(slug, req.headers.authorization) }
+    try { user = await identify(slug, req.headers.authorization, req) }
     catch (err) { fastify.log.error({ err }, 'workspace websocket auth failed'); return upgradeError(socket, 503, 'Service Unavailable') }
     if (!user) return upgradeError(socket, 401, 'Unauthorized', 'WWW-Authenticate: Basic realm="VS Code Workspace", charset="UTF-8"\r\n')
     if (!ORIGIN || req.headers.origin !== ORIGIN) return upgradeError(socket, 403, 'Forbidden')
