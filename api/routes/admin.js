@@ -12,7 +12,7 @@ if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BA
 
 function allowedOrigin(req) { return ORIGIN ? req.headers.origin === ORIGIN : process.env.NODE_ENV !== 'production' }
 async function admin(req, reply) {
-  const username = currentUser(req)
+  const username = await currentUser(req)
   if (!username) { reply.code(401).send({ error: 'Bitte anmelden.' }); return null }
   const users = await readUsers()
   const actor = users.find(user => user.username === username && user.disabled !== true)
