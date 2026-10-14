@@ -1,10 +1,7 @@
 'use strict'
 
-const fs = require('node:fs/promises')
-const path = require('node:path')
 const crypto = require('node:crypto')
-
-const FILE = () => process.env.DIM_AUDIT_FILE || path.join(path.dirname(process.env.DIM_USERS_FILE || '/var/lib/dev-instance-manager-users/users.json'), 'audit.jsonl')
+const { query } = require('./auth')
 const ALLOWED_ACTION = /^[a-z][a-z0-9._-]{0,63}$/
 
 async function writeAudit(event) {
@@ -13,30 +10,23 @@ async function writeAudit(event) {
     at: new Date().toISOString(),
     actor: String(event.actor || 'system').slice(0, 64),
     action: ALLOWED_ACTION.test(String(event.action || '')) ? event.action : 'unknown',
-    target: event.target ? String(event.target).slice(0, 64) : undefined,
+    target: event.target ? String(event.target).slice(0, 64) : null,
     status: ['started', 'finished', 'success', 'failed'].includes(event.status) ? event.status : 'success',
-    details: event.details && typeof event.details === 'object' ? event.details : undefined
+    details: event.details && typeof event.details === 'object' ? event.details : null
   }
-  const file = FILE()
-  await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 })
-  await fs.appendFile(file, JSON.stringify(record) + '\n', { mode: 0o600 })
-  await fs.chmod(file, 0o600)
+  await query('INSERT INTO dim_audit (id,event_at,actor,action,target,status,details) VALUES (?,?,?,?,?,?,?)',
+    [record.id, record.at, record.actor, record.action, record.target, record.status, record.details ? JSON.stringify(record.details) : null])
   return record
 }
 
 async function readAudit(limit = 50) {
-  let content
-  try { content = await fs.readFile(FILE(), 'utf8') }
-  catch (err) { if (err.code === 'ENOENT') return []; throw err }
-  const lines = content.split('\n').filter(Boolean).slice(-Math.max(1, Math.min(limit, 200)))
-  const events = []
-  for (const line of lines.reverse()) {
-    try {
-      const item = JSON.parse(line)
-      if (item && typeof item.at === 'string' && typeof item.actor === 'string' && typeof item.action === 'string') events.push(item)
-    } catch {}
-  }
-  return events
+  const safeLimit = Math.max(1, Math.min(Number.isInteger(limit) ? limit : 50, 200))
+  const [rows] = await query('SELECT id,event_at AS at,actor,action,target,status,details FROM dim_audit ORDER BY event_at DESC LIMIT ?', [safeLimit])
+  return rows.map(row => {
+    let details = row.details
+    if (typeof details === 'string') { try { details = JSON.parse(details) } catch { details = undefined } }
+    return { ...row, details: details || undefined, target: row.target || undefined }
+  })
 }
 
 module.exports = { writeAudit, readAudit }
