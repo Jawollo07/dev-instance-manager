@@ -1,6 +1,7 @@
 'use strict'
 
 const http = require('node:http')
+const https = require('node:https')
 const { execFile } = require('node:child_process')
 const { promisify } = require('node:util')
 const { readUsers, verifyPassword, SLUG_RE } = require('../lib/auth')
@@ -56,6 +57,89 @@ function cleanHeaders(headers, host, ip) {
   return out
 }
 
+// Fixed-origin reverse proxy for Open VSX. It is deliberately not a generic URL proxy.
+function proxyOpenVSX(req, reply, slug, publicUrl) {
+  const prefix = '/' + slug + '/_dim-proxy/open-vsx'
+  const upstreamPath = publicUrl.pathname.slice(prefix.length) || '/'
+  if (!upstreamPath.startsWith('/') || upstreamPath.startsWith('//')) {
+    return reply.code(400).send({ error: 'Ungültiger Marketplace-Pfad.' })
+  }
+  const headers = cleanHeaders(req.headers, 'open-vsx.org', req.ip)
+  headers.host = 'open-vsx.org'
+  headers['accept-encoding'] = 'identity'
+  let body
+  if (req.body !== undefined && req.method !== 'GET' && req.method !== 'HEAD') {
+    body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+    headers['content-length'] = String(body.length)
+    delete headers['transfer-encoding']
+  }
+  const upstream = https.request({
+    hostname: 'open-vsx.org',
+    port: 443,
+    path: upstreamPath + publicUrl.search,
+    method: req.method,
+    headers,
+    timeout: 30000
+  }, res => {
+    const statusCode = res.statusCode || 502
+    const outHeaders = { ...res.headers }
+    delete outHeaders['content-security-policy']
+    if (outHeaders.location) {
+      try {
+        const location = new URL(outHeaders.location, 'https://open-vsx.org')
+        if (location.hostname === 'open-vsx.org' && location.protocol === 'https:') {
+          outHeaders.location = 'https://' + (ORIGIN ? new URL(ORIGIN).host : (req.headers.host || 'vs.code.de')) + prefix + location.pathname + location.search + location.hash
+        }
+      } catch {}
+    }
+    const contentType = String(outHeaders['content-type'] || '')
+    if (!contentType.includes('json')) {
+      reply.raw.writeHead(statusCode, outHeaders)
+      res.pipe(reply.raw)
+      return
+    }
+    const chunks = []
+    let bytes = 0
+    res.on('data', chunk => {
+      bytes += chunk.length
+      if (bytes > 12 * 1024 * 1024) {
+        res.destroy(new Error('Marketplace JSON response too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
+    res.on('end', () => {
+      if (reply.raw.destroyed) return
+      let text = Buffer.concat(chunks).toString('utf8')
+      const publicOrigin = ORIGIN || ('https://' + (req.headers.host || 'vs.code.de'))
+      const localBase = publicOrigin + prefix
+      text = text.replace(/https?:\\/\\/open-vsx\\.org/gi, localBase)
+      text = text.replace(/https:\\/\\/\\/open-vsx\\.org/gi, localBase)
+      delete outHeaders['content-length']
+      delete outHeaders['content-encoding']
+      outHeaders['content-length'] = Buffer.byteLength(text)
+      reply.raw.writeHead(statusCode, outHeaders)
+      reply.raw.end(text)
+    })
+    res.on('error', err => {
+      req.log.warn({ err, slug }, 'Open VSX response failed')
+      if (!reply.raw.headersSent) reply.raw.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+      reply.raw.end('Marketplace-Proxy fehlgeschlagen.')
+    })
+  })
+  upstream.on('timeout', () => upstream.destroy(new Error('Open VSX request timed out')))
+  upstream.on('error', err => {
+    req.log.warn({ err, slug }, 'Open VSX upstream failed')
+    if (!reply.raw.headersSent) {
+      reply.raw.writeHead(502, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      reply.raw.end('Marketplace momentan nicht erreichbar.')
+    } else reply.raw.destroy(err)
+  })
+  req.raw.on('aborted', () => upstream.destroy())
+  if (body !== undefined) upstream.end(body)
+  else req.raw.pipe(upstream)
+}
+
 function upgradeError(socket, code, reason, extra = '') {
   if (!socket.destroyed) socket.end('HTTP/1.1 ' + code + ' ' + reason + '\r\n' + extra + 'Connection: close\r\nContent-Length: 0\r\n\r\n')
 }
@@ -69,13 +153,21 @@ module.exports = async function (fastify) {
     catch (err) { req.log.error({ err }, 'workspace authentication failed'); return reply.code(503).send({ error: 'Authentifizierung momentan nicht verfügbar.' }) }
     if (!user) return challenge(reply)
     if (!originAllowed(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
+
+    const publicUrl = new URL(req.raw.url, 'http://workspace.invalid')
+    // Gallery metadata and downloads are served from this domain and routed only
+    // to the fixed Open VSX origin. Requests still require the workspace's Basic Auth.
+    if (publicUrl.pathname.startsWith('/' + slug + '/_dim-proxy/open-vsx/')) {
+      reply.hijack()
+      return proxyOpenVSX(req, reply, slug, publicUrl)
+    }
+
     let vm
     try { vm = await status(slug) }
     catch (err) { req.log.error({ err }, 'workspace status failed'); return reply.code(503).send({ error: 'Workspace-Status nicht verfügbar.' }) }
     if (!vm.exists) return reply.code(404).send({ error: 'Workspace wurde noch nicht erstellt.' })
     if (vm.status !== 'Running' || !vm.ip) return reply.code(409).send({ error: 'Workspace ist gestoppt. Bitte Admin kontaktieren.' })
 
-    const publicUrl = new URL(req.raw.url, 'http://workspace.invalid')
     if (publicUrl.pathname === '/' + slug) {
       reply.header('Location', '/' + slug + '/' + (publicUrl.search || ''))
       return reply.code(308).send()
