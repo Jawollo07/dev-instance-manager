@@ -11,6 +11,8 @@ table inet devsandbox {
     iifname "dv-*" ct state established,related accept
     iifname "dv-*" udp dport { 53, 67 } accept
     iifname "dv-*" tcp dport 53 accept
+    # Permit workspace VMs to use the host-side controlled HTTP(S) egress proxy.
+    iifname "dv-*" tcp dport 3128 accept
     iifname "dv-*" drop
   }
   chain forward_sandbox_guard {
