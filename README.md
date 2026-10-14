@@ -26,7 +26,8 @@ Self-hosted management for up to **eight persistent VS Code Web workspaces**, wi
 
 ### Admin dashboard
 
-- Create accounts and provision a workspace VM.
+- Create regular accounts with a workspace VM or administrator accounts directly in the dashboard.
+- Change account roles, reset passwords, and lock or unlock accounts. The API refuses to disable, demote, or delete the last active administrator.
 - View accounts, workspace URLs, VM state and reported VM IP.
 - Start, stop and delete workspaces.
 - Enable or disable accounts and reset passwords.
