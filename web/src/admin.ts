@@ -404,6 +404,12 @@ style.textContent = `
     margin-top: 18px;
   }
 
+  .audit-events { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .audit-event { display: grid; grid-template-columns: 150px minmax(140px, 1fr) minmax(120px, 1fr) auto; gap: 10px; align-items: center; border: 1px solid #30394b; border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+  .audit-event time, .audit-event .muted { color: #9aa9c2; }
+  .audit-event .failed { color: #f3a2a2; }
+  @media (max-width: 700px) { .audit-event { grid-template-columns: 1fr 1fr; } }
+
   footer {
     font-size: 11px;
     color: #77849b;
