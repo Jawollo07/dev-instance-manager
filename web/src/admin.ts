@@ -451,6 +451,8 @@ const commandForm = document.getElementById('command-form') as HTMLFormElement
 const commandSubmit = document.getElementById('command-submit') as HTMLButtonElement
 const commandOutput = document.getElementById('command-output') as HTMLPreElement
 const commandMessage = document.getElementById('command-message') as HTMLElement
+const auditNode = document.getElementById('audit-events') as HTMLElement
+const auditRefresh = document.getElementById('audit-refresh') as HTMLButtonElement
 
 const USER_ACTION_LABELS: Record<UserAction, string> = {
   create: 'Erstellen',
@@ -769,11 +771,34 @@ backupButton.addEventListener('click', async () => {
   }
 })
 
+async function loadAudit() {
+  auditRefresh.disabled = true
+  try {
+    const data = await api<{ events: Array<{ id: string; at: string; actor: string; action: string; target?: string; status: string; details?: Record<string, unknown> }> }>('/api/admin/audit?limit=100')
+    auditNode.replaceChildren()
+    if (!data.events.length) { auditNode.append(el('p', 'message', 'Noch keine protokollierten Aktionen.')); return }
+    for (const event of data.events) {
+      const row = el('article', 'audit-event')
+      row.append(el('time', '', new Date(event.at).toLocaleString()))
+      row.append(el('strong', '', event.action))
+      row.append(el('span', 'muted', [event.target, event.actor ? 'durch ' + event.actor : ''].filter(Boolean).join(' · ') || 'System'))
+      row.append(el('span', event.status === 'failed' ? 'failed' : 'muted', event.status))
+      if (event.details && Object.keys(event.details).length) row.title = JSON.stringify(event.details)
+      auditNode.append(row)
+    }
+  } catch (err) {
+    auditNode.replaceChildren(el('p', 'message', err instanceof Error ? err.message : 'Audit-Protokoll konnte nicht geladen werden.'))
+  } finally { auditRefresh.disabled = false }
+}
+
+auditRefresh.addEventListener('click', () => void loadAudit())
+
 async function init() {
   try {
     await api('/api/auth/me')
     showDashboard()
     await loadUsers()
+    await loadAudit()
   } catch {
     showLogin()
   }
