@@ -774,7 +774,7 @@ backupButton.addEventListener('click', async () => {
 async function loadAudit() {
   auditRefresh.disabled = true
   try {
-    const data = await api<{ events: Array<{ id: string; at: string; actor: string; action: string; target?: string; status: string; details?: Record<string, unknown> }> }>('/api/admin/audit?limit=100')
+    const data = await api<ApiResponse & { events: Array<{ id: string; at: string; actor: string; action: string; target?: string; status: string; details?: Record<string, unknown> }> }>('/api/admin/audit?limit=100')
     auditNode.replaceChildren()
     if (!data.events.length) { auditNode.append(el('p', 'message', 'Noch keine protokollierten Aktionen.')); return }
     for (const event of data.events) {
