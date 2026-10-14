@@ -184,7 +184,23 @@ module.exports = async function (fastify) {
     }
     reply.hijack()
     const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: req.method, headers })
-    upstream.on('response', res => { reply.raw.writeHead(res.statusCode || 502, res.headers); res.pipe(reply.raw) })
+    upstream.on('response', res => {
+      const responseHeaders = { ...res.headers }
+      // Never expose the private LXD address in a redirect. code-server may
+      // emit an absolute Location based on the upstream Host header.
+      if (responseHeaders.location) {
+        try {
+          const location = new URL(responseHeaders.location, 'http://' + vm.ip + ':8080')
+          const upstreamHosts = new Set([vm.ip, vm.ip + ':8080', '127.0.0.1:8080', 'localhost:8080'])
+          if (upstreamHosts.has(location.host) || location.hostname === vm.ip) {
+            const publicOrigin = ORIGIN || ('https://' + (req.headers.host || 'vs.code.de'))
+            responseHeaders.location = publicOrigin + location.pathname + location.search + location.hash
+          }
+        } catch {}
+      }
+      reply.raw.writeHead(res.statusCode || 502, responseHeaders)
+      res.pipe(reply.raw)
+    })
     upstream.on('error', err => {
       req.log.warn({ err, slug }, 'workspace upstream failed')
       if (!reply.raw.headersSent) { reply.raw.writeHead(502, { 'content-type': 'text/plain' }); reply.raw.end('Workspace noch nicht bereit.') }
