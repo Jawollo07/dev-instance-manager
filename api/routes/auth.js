@@ -41,7 +41,7 @@ module.exports = async function (fastify) {
         await new Promise(resolve => setTimeout(resolve, 250))
         return reply.code(401).send({ error: 'Benutzername oder Passwort ungültig.' })
       }
-      setSessionCookie(reply, createSession(user.username))
+      setSessionCookie(reply, await createSession(user.username))
       reply.header('cache-control', 'no-store')
       return { user: user.username, role: user.role, redirectTo: destinationFor(user) }
     } catch (err) {
@@ -51,13 +51,13 @@ module.exports = async function (fastify) {
   })
 
   fastify.get('/api/auth/me', async (req, reply) => {
-    const username = currentUser(req)
+    const username = await currentUser(req)
     reply.header('cache-control', 'no-store')
     if (!username) return reply.code(401).send({ error: 'Bitte anmelden.' })
     try {
       const user = (await readUsers()).find(candidate => candidate.username === username && candidate.disabled !== true)
       if (!user) {
-        destroySession(req)
+        await destroySession(req)
         clearSessionCookie(reply)
         return reply.code(401).send({ error: 'Bitte erneut anmelden.' })
       }

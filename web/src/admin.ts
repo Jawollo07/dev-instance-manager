@@ -64,6 +64,8 @@ root.innerHTML = `
     </section>
 
     <section id="dashboard" hidden>
+      <nav class="admin-tabs"><button type="button" data-tab="users" class="tab active">Benutzer</button><button type="button" data-tab="workspaces" class="tab">Workspaces</button><button type="button" data-tab="audit" class="tab">Audit</button></nav>
+      <div id="users-panel">
       <div class="stats">
         <article class="panel">
           <span>Benutzer-Workspaces</span>
@@ -109,7 +111,7 @@ root.innerHTML = `
         <p id="create-message" class="message" role="status"></p>
       </section>
 
-      <section class="panel">
+      <section id="broadcast-panel" class="panel">
         <div class="section-head">
           <div>
             <h2>Befehl auf allen Instanzen ausführen</h2>
@@ -143,9 +145,10 @@ root.innerHTML = `
         <div id="users" class="users"></div>
         <p id="page-message" class="message" role="status"></p>
       </section>
+      </div>
+      <section id="workspaces-panel" hidden><section class="panel"><div class="section-head"><div><h2>Workspace-Verwaltung</h2><p>Workspaces unabhängig von Benutzerkonten erstellen, starten, stoppen oder löschen. Beim Löschen bleibt das Benutzerkonto bestehen.</p></div><button id="workspace-refresh" class="secondary">Aktualisieren</button></div><div id="workspaces" class="users"></div><p id="workspace-message" class="message"></p></section></section>
+      <section id="audit-panel" class="panel" hidden><div class="section-head"><div><h2>Audit-Protokoll</h2><p>Letzte administrative Änderungen. Passwörter und Shell-Befehle werden nicht gespeichert.</p></div><button id="audit-refresh" class="secondary">Protokoll aktualisieren</button></div><div id="audit-events" class="audit-events"><p class="message">Noch nicht geladen.</p></div></section>
     </section>
-
-    <section class="panel"><div class="section-head"><div><h2>Audit-Protokoll</h2><p>Letzte administrative Änderungen. Passwörter und Shell-Befehle werden nicht gespeichert.</p></div><button id="audit-refresh" class="secondary">Protokoll aktualisieren</button></div><div id="audit-events" class="audit-events"><p class="message">Noch nicht geladen.</p></div></section>
 
   <footer>Adminzugriff nur über HTTPS · Workspaces sind per URL-Slug und HTTP Basic Auth getrennt.</footer>
   </div>
@@ -206,6 +209,9 @@ style.textContent = `
   }
 
   .head-actions { flex-wrap: wrap; }
+  .admin-tabs { display:flex; gap:8px; margin:0 0 18px; flex-wrap:wrap; }
+  .admin-tabs .tab { background:#101620; color:#a6b1c5; }
+  .admin-tabs .tab.active { background:#29466f; color:#fff; border-color:#537eb8; }
 
   .topbar {
     padding-bottom: 24px;
@@ -457,6 +463,13 @@ const commandOutput = document.getElementById('command-output') as HTMLPreElemen
 const commandMessage = document.getElementById('command-message') as HTMLElement
 const auditNode = document.getElementById('audit-events') as HTMLElement
 const auditRefresh = document.getElementById('audit-refresh') as HTMLButtonElement
+const workspaceNode = document.getElementById('workspaces') as HTMLElement
+const workspaceMessage = document.getElementById('workspace-message') as HTMLElement
+const workspaceRefresh = document.getElementById('workspace-refresh') as HTMLButtonElement
+const workspacePanel = document.getElementById('workspaces-panel') as HTMLElement
+const broadcastPanel = document.getElementById('broadcast-panel') as HTMLElement
+workspacePanel.append(broadcastPanel)
+workspacePanel.querySelector('.section-head')?.append(backupButton)
 
 const USER_ACTION_LABELS: Record<UserAction, string> = {
   create: 'Erstellen',
@@ -553,12 +566,6 @@ function buildUserCard(user: User): HTMLElement {
     const roleButton = el('button', 'secondary', 'Zum Admin machen')
     roleButton.addEventListener('click', () => void changeRole(user, 'admin', roleButton))
     actions.append(roleButton)
-    for (const operation of ['create', 'start', 'stop'] as const) {
-      const button = el('button', 'secondary', USER_ACTION_LABELS[operation])
-      button.addEventListener('click', () => void instanceAction(user, operation, button))
-      actions.append(button)
-    }
-
     const toggle = el('button', 'secondary', user.disabled ? 'Entsperren' : 'Sperren')
     toggle.addEventListener('click', () => void toggleUser(user, toggle))
     actions.append(toggle)
@@ -593,6 +600,39 @@ function formatCommandResults(results: CommandResult[]): string {
 
   return lines.join('\n')
 }
+
+function setTab(tab: 'users' | 'workspaces' | 'audit') {
+  document.getElementById('users-panel')!.hidden = tab !== 'users'
+  document.getElementById('workspaces-panel')!.hidden = tab !== 'workspaces'
+  document.getElementById('audit-panel')!.hidden = tab !== 'audit'
+  document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab))
+  if (tab === 'workspaces') void loadWorkspaces()
+  if (tab === 'audit') void loadAudit()
+}
+document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab as 'users' | 'workspaces' | 'audit')))
+
+async function loadWorkspaces() {
+  workspaceRefresh.disabled = true
+  workspaceMessage.textContent = 'Lade Workspaces …'
+  try {
+    const response = await api<ApiResponse & { workspaces?: Array<{slug:string; username:string; url:string; exists:boolean; status?:string; ip?:string|null; error?:string}> }>('/api/admin/workspaces')
+    workspaceNode.replaceChildren()
+    const items = response.workspaces || []
+    if (!items.length) workspaceNode.append(el('p','message','Keine Workspaces vorhanden.'))
+    for (const w of items) {
+      const card = el('article','user')
+      const details = el('div','details'); details.append(el('h3','','/'+w.slug),el('p','','Benutzerkonto: '+w.username))
+      const link = el('a','',window.location.origin+w.url) as HTMLAnchorElement; link.href=w.url; link.target='_blank'; link.rel='noopener noreferrer'; details.append(link)
+      const state = el('div','state'); state.append(el('span','pill '+(w.status==='Running'?'running':'stopped'),w.exists?(w.status||'Unbekannt'):'Nicht erstellt')); if(w.ip) state.append(el('p','','VM-IP: '+w.ip))
+      const actions = el('div','actions')
+      for (const op of ['create','start','stop'] as const) { const b=el('button','secondary',op==='create'?'Erstellen':op==='start'?'Starten':'Stoppen'); b.addEventListener('click',async()=>{b.disabled=true;try{await api('/api/admin/workspaces/'+encodeURIComponent(w.slug)+'/'+op,'POST',{});await loadWorkspaces()}catch(e){workspaceMessage.textContent=e instanceof Error?e.message:'Aktion fehlgeschlagen'}finally{b.disabled=false}});actions.append(b) }
+      const del=el('button','danger','Workspace löschen'); del.addEventListener('click',async()=>{if(!confirm('Workspace /'+w.slug+' samt Projekten unwiderruflich löschen? Das Benutzerkonto bleibt bestehen. Bitte vorher Backup erstellen.'))return;del.disabled=true;try{await api('/api/admin/workspaces/'+encodeURIComponent(w.slug),'DELETE');workspaceMessage.textContent='Workspace gelöscht; Benutzerkonto bleibt bestehen.';await loadWorkspaces()}catch(e){workspaceMessage.textContent=e instanceof Error?e.message:'Löschen fehlgeschlagen'}finally{del.disabled=false}}); actions.append(del)
+      card.append(details,state,actions); workspaceNode.append(card)
+    }
+    workspaceMessage.textContent='Stand: '+new Date().toLocaleTimeString()
+  } catch(e) { workspaceMessage.textContent=e instanceof Error?e.message:'Workspaces konnten nicht geladen werden' } finally { workspaceRefresh.disabled=false }
+}
+workspaceRefresh.addEventListener('click',()=>void loadWorkspaces())
 
 async function loadUsers() {
   refreshButton.disabled = true

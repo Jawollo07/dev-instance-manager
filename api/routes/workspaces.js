@@ -18,7 +18,7 @@ async function identify(slug, header, req) {
   // Browser sessions are the normal sign-in path. Admins may inspect any
   // valid workspace slug; regular users remain restricted to their own slug.
   if (!header && req) {
-    const username = currentUser(req)
+    const username = await currentUser(req)
     if (!username) return null
     const actor = users.find(item => item.username === username && item.disabled !== true)
     if (!actor) return null
