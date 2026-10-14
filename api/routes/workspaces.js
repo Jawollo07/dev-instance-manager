@@ -75,15 +75,15 @@ module.exports = async function (fastify) {
     if (!vm.exists) return reply.code(404).send({ error: 'Workspace wurde noch nicht erstellt.' })
     if (vm.status !== 'Running' || !vm.ip) return reply.code(409).send({ error: 'Workspace ist gestoppt. Bitte Admin kontaktieren.' })
 
-    // The public URL is /<slug>/..., but code-server runs at the VM root.
-    // Keep the trailing slash so code-server's relative asset URLs resolve under /<slug>/.
     const publicUrl = new URL(req.raw.url, 'http://workspace.invalid')
     if (publicUrl.pathname === '/' + slug) {
       reply.header('Location', '/' + slug + '/' + (publicUrl.search || ''))
       return reply.code(308).send()
     }
-    const upstreamPath = publicUrl.pathname.slice(slug.length + 1) || '/'
-    const targetPath = upstreamPath + publicUrl.search
+
+    // code-server is configured with --base-path /<slug>. Preserve that prefix
+    // upstream so every HTML, asset, API and extension request stays on this host.
+    const targetPath = publicUrl.pathname + publicUrl.search
     const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.ip)
     let body
     if (req.body !== undefined && req.method !== 'GET' && req.method !== 'HEAD') {
@@ -111,7 +111,7 @@ module.exports = async function (fastify) {
     let url
     try { url = new URL(req.url, 'http://localhost') } catch { return upgradeError(socket, 400, 'Bad Request') }
     const slug = url.pathname.split('/')[1]
-    if (!SLUG_RE.test(slug || '')) return
+    if (!SLUG_RE.test(slug || '') || ['admin', 'api', 'assets'].includes(slug)) return
     let user
     try { user = await identify(slug, req.headers.authorization) }
     catch (err) { fastify.log.error({ err }, 'workspace websocket auth failed'); return upgradeError(socket, 503, 'Service Unavailable') }
@@ -121,13 +121,11 @@ module.exports = async function (fastify) {
       const vm = await status(slug)
       if (!vm.exists || vm.status !== 'Running' || !vm.ip) return upgradeError(socket, 409, 'Workspace Not Ready')
       const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.socket.remoteAddress || '')
-      // Be explicit: the upstream must receive a WebSocket handshake, not a normal GET.
       headers.connection = 'Upgrade'
       headers.upgrade = 'websocket'
       headers['x-forwarded-host'] = req.headers.host || ''
-      // Strip /<slug> from WebSocket URLs too; code-server listens at /.
-      const upstreamPath = url.pathname.slice(slug.length + 1) || '/'
-      const targetPath = upstreamPath + url.search
+      // Keep /<slug> on the upstream: code-server's --base-path handles it.
+      const targetPath = url.pathname + url.search
       const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: 'GET', headers })
       upstream.on('upgrade', (res, remote, remoteHead) => {
         fastify.log.debug({ slug, path: targetPath, statusCode: res.statusCode }, 'workspace websocket upgraded')
