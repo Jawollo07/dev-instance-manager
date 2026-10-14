@@ -8,7 +8,7 @@ type AuthResponse = {
 const root = document.querySelector<HTMLDivElement>('#app')
 if (!root) throw new Error('App root not found')
 
-root.innerHTML = \`
+root.innerHTML = `
   <main class="shell">
     <section class="card">
       <div class="mark" aria-hidden="true">⌘</div>
@@ -26,10 +26,10 @@ root.innerHTML = \`
       <footer>Self-hosted · Sichere Sitzung · Persönliche Entwicklungsumgebung</footer>
     </section>
   </main>
-\`
+`
 
 const style = document.createElement('style')
-style.textContent = \`
+style.textContent = `
   :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#edf1fa;background:#0b0d12;color-scheme:dark}
   *{box-sizing:border-box}
   body{margin:0;min-width:320px;min-height:100vh;background:radial-gradient(ellipse at 15% 0%,#17213a,#0b0d12 56%)}
@@ -49,7 +49,7 @@ style.textContent = \`
   #message.error{color:#ff9ca3}
   footer{border-top:1px solid #2a3240;margin-top:25px;padding-top:17px;color:#77849b;font-size:10px;line-height:1.6}
   @media(max-width:480px){.shell{padding:14px}.card{padding:24px}}
-\`
+`
 document.head.append(style)
 
 const form = document.getElementById('login-form') as HTMLFormElement
