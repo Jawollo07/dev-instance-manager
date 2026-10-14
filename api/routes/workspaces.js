@@ -15,17 +15,20 @@ async function identify(slug, header, req) {
   if (!SLUG_RE.test(slug || '')) return null
   const users = await readUsers()
 
-  // The shared login creates an HttpOnly session cookie. Bind that session to
-  // exactly one enabled user and that user's slug; never accept a client slug
-  // as an identity by itself.
+  // Browser sessions are the normal sign-in path. Admins may inspect any
+  // valid workspace slug; regular users remain restricted to their own slug.
   if (!header && req) {
     const username = currentUser(req)
-    return username
-      ? users.find(item => item.username === username && item.slug === slug && item.role === 'user' && item.disabled !== true) || null
-      : null
+    if (!username) return null
+    const actor = users.find(item => item.username === username && item.disabled !== true)
+    if (!actor) return null
+    if (actor.role === 'admin') return actor
+    return actor.role === 'user' && actor.slug === slug ? actor : null
   }
 
-  const match = /^Basic\s+([A-Za-z0-9+/]+={0,2})$/i.exec(header || '')
+  // Keep Basic Auth for compatible clients. Admin credentials are global;
+  // regular user credentials are valid only for the assigned workspace.
+  const match = /^Basic\\s+([A-Za-z0-9+/]+={0,2})$/i.exec(header || '')
   if (!match) return null
   let decoded
   try { decoded = Buffer.from(match[1], 'base64').toString('utf8') } catch { return null }
@@ -34,9 +37,11 @@ async function identify(slug, header, req) {
   const username = decoded.slice(0, split)
   const password = decoded.slice(split + 1)
   if (!username || password.length > 1024) return null
-  const user = users.find(item => item.username === username && item.slug === slug && item.role === 'user' && item.disabled !== true)
-  const valid = await verifyPassword(password, user)
-  return valid ? user : null
+  const actor = users.find(item => item.username === username && item.disabled !== true)
+  const valid = await verifyPassword(password, actor)
+  if (!valid) return null
+  if (actor.role === 'admin') return actor
+  return actor.role === 'user' && actor.slug === slug ? actor : null
 }
 
 async function status(slug) {
