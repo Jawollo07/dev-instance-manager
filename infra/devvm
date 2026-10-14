@@ -18,13 +18,7 @@ vm="dev-$(printf '%s' "$key" | cut -c1-20)"
 network="dv-$(printf '%s' "$key" | cut -c1-12)"
 mkdir -p "$NETWORK_DIR" /run/lock
 chmod 0700 "$STATE_DIR" "$NETWORK_DIR"
-exec 9>/run/lock/devvm-network-map.lock
-flock 9
 octet=""
-if [[ -f "$NETWORK_DIR/$key" ]]; then
-  octet="$(cat "$NETWORK_DIR/$key")"
-  [[ "$octet" =~ ^([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$ ]] || die "Bad subnet allocation"
-fi
 status_json() {
   "$LXC" list "$vm" --format=json | python3 -c '
 import json,sys
@@ -81,6 +75,12 @@ PY
     [[ -r "$CLOUD_INIT" && -r "$STORAGE_FILE" ]] || die "Missing cloud-init or storage-pool config"
     pool="$(tr -d '[:space:]' < "$STORAGE_FILE")"
     [[ "$pool" =~ ^[a-zA-Z0-9_-]{1,63}$ ]] || die "Invalid storage pool"
+    exec 9>/run/lock/devvm-network-map.lock
+    flock 9
+    if [[ -f "$NETWORK_DIR/$key" ]]; then
+      octet="$(cat "$NETWORK_DIR/$key")"
+      [[ "$octet" =~ ^([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$ ]] || die "Bad subnet allocation"
+    fi
     ensure_network
     current="$(status_json)"
     exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
@@ -112,6 +112,8 @@ PY
     status_json
     ;;
   delete)
+    exec 9>/run/lock/devvm-network-map.lock
+    flock 9
     current="$(status_json)"
     exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
     if [[ "$exists" == true ]]; then "$LXC" delete "$vm" --force; fi
