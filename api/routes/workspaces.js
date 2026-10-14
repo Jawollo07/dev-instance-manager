@@ -121,11 +121,16 @@ module.exports = async function (fastify) {
       const vm = await status(slug)
       if (!vm.exists || vm.status !== 'Running' || !vm.ip) return upgradeError(socket, 409, 'Workspace Not Ready')
       const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.socket.remoteAddress || '')
+      // Be explicit: the upstream must receive a WebSocket handshake, not a normal GET.
+      headers.connection = 'Upgrade'
+      headers.upgrade = 'websocket'
+      headers['x-forwarded-host'] = req.headers.host || ''
       // Strip /<slug> from WebSocket URLs too; code-server listens at /.
       const upstreamPath = url.pathname.slice(slug.length + 1) || '/'
       const targetPath = upstreamPath + url.search
       const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: 'GET', headers })
       upstream.on('upgrade', (res, remote, remoteHead) => {
+        fastify.log.debug({ slug, path: targetPath, statusCode: res.statusCode }, 'workspace websocket upgraded')
         const lines = []
         for (let i = 0; i < res.rawHeaders.length; i += 2) lines.push(res.rawHeaders[i] + ': ' + res.rawHeaders[i + 1])
         socket.write('HTTP/1.1 ' + res.statusCode + ' ' + res.statusMessage + '\r\n' + lines.join('\r\n') + '\r\n\r\n')
@@ -134,7 +139,11 @@ module.exports = async function (fastify) {
         socket.pipe(remote); remote.pipe(socket)
         socket.on('error', () => remote.destroy()); remote.on('error', () => socket.destroy())
       })
-      upstream.on('response', res => { upgradeError(socket, res.statusCode || 502, 'Upgrade Failed'); res.resume() })
+      upstream.on('response', res => {
+        fastify.log.warn({ slug, path: targetPath, statusCode: res.statusCode }, 'workspace websocket upstream rejected upgrade')
+        upgradeError(socket, res.statusCode || 502, 'Upgrade Failed')
+        res.resume()
+      })
       upstream.on('error', err => { fastify.log.warn({ err, slug }, 'workspace websocket proxy failed'); upgradeError(socket, 502, 'Workspace Unavailable') })
       upstream.end()
     } catch (err) { fastify.log.error({ err }, 'workspace websocket failed'); upgradeError(socket, 503, 'Service Unavailable') }
