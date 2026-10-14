@@ -141,7 +141,9 @@ root.innerHTML = `
       </section>
     </section>
 
-    <footer>Adminzugriff nur über HTTPS · Workspaces sind per URL-Slug und HTTP Basic Auth getrennt.</footer>
+    <section class="panel"><div class="section-head"><div><h2>Audit-Protokoll</h2><p>Letzte administrative Änderungen. Passwörter und Shell-Befehle werden nicht gespeichert.</p></div><button id="audit-refresh" class="secondary">Protokoll aktualisieren</button></div><div id="audit-events" class="audit-events"><p class="message">Noch nicht geladen.</p></div></section>
+
+  <footer>Adminzugriff nur über HTTPS · Workspaces sind per URL-Slug und HTTP Basic Auth getrennt.</footer>
   </div>
 `
 
