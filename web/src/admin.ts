@@ -31,8 +31,6 @@ type ApiResponse = {
   command?: string
 }
 
-type UserAction = 'create' | 'start' | 'stop'
-
 const root = document.querySelector<HTMLDivElement>('#admin-app')
 if (!root) throw new Error('Admin root not found')
 
@@ -471,12 +469,6 @@ const broadcastPanel = document.getElementById('broadcast-panel') as HTMLElement
 workspacePanel.append(broadcastPanel)
 workspacePanel.querySelector('.section-head')?.append(backupButton)
 
-const USER_ACTION_LABELS: Record<UserAction, string> = {
-  create: 'Erstellen',
-  start: 'Starten',
-  stop: 'Stoppen',
-}
-
 async function api<T extends ApiResponse>(url: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method,
@@ -668,20 +660,6 @@ async function loadUsers() {
     }
   } finally {
     refreshButton.disabled = false
-  }
-}
-
-async function instanceAction(user: User, op: UserAction, button: HTMLButtonElement) {
-  button.disabled = true
-  pageMessage.textContent = `${user.username}: ${op} läuft …`
-
-  try {
-    await api('/api/admin/users/' + encodeURIComponent(user.username) + '/instance/' + op, 'POST', {})
-    await loadUsers()
-  } catch (err) {
-    pageMessage.textContent = err instanceof Error ? err.message : 'Aktion fehlgeschlagen.'
-  } finally {
-    button.disabled = false
   }
 }
 

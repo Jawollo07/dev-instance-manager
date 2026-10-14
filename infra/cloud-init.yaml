@@ -37,7 +37,7 @@ write_files:
       WorkingDirectory=/home/coder/project
       Environment=HOME=/home/coder
       EnvironmentFile=/etc/default/code-server-gallery
-      # The reverse proxy strips the public /<slug> prefix before forwarding.
+      # The manager replaces this with the user's URL slug during provisioning.
       ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check
       Restart=on-failure
       RestartSec=3
@@ -49,7 +49,7 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 runcmd:
-  - [bash, -lc, "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=deb"]
+  - [bash, -lc, "curl https://raw.githubusercontent.com/coder/code-server/refs/heads/main/install.sh | bash"]
   - [install, -d, -o, coder, -g, coder, /home/coder/project]
   - [systemctl, daemon-reload]
   - [systemctl, enable, --now, code-server.service]
