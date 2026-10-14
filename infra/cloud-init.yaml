@@ -37,8 +37,8 @@ write_files:
       WorkingDirectory=/home/coder/project
       Environment=HOME=/home/coder
       EnvironmentFile=/etc/default/code-server-gallery
-      # The manager replaces this with the user's URL slug during provisioning.
-      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --base-path __WORKSPACE_BASE_PATH__ --auth none --disable-telemetry --disable-update-check
+      # The reverse proxy strips the public /<slug> prefix before forwarding.
+      ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check
       Restart=on-failure
       RestartSec=3
       NoNewPrivileges=true
