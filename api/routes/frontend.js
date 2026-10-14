@@ -38,7 +38,6 @@ async function sendAdmin(req, reply) {
 
 module.exports = async function (fastify) {
   // The API process is the public entry point: it serves the built admin UI itself.
-  fastify.get('/', async (_req, reply) => reply.redirect('/admin'))
   fastify.get('/admin', sendAdmin)
   fastify.get('/admin/', sendAdmin)
   fastify.get('/admin/*', sendAdmin)
