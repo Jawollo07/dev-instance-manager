@@ -11,7 +11,7 @@ Self-hosted administration for up to eight persistent VS Code Web workspaces on 
 
 The workspace application itself is **code-server**, installed and run inside each VM. The browser opens `vs.code.de/<slug>/`; it must not be redirected to `vscode.dev`, an external VS Code host, or a per-VM address. Fastify authenticates every normal request and WebSocket handshake, then proxies it privately to that user's VM. code-server receives its own `--base-path /<slug>` prefix, so generated asset, API, terminal and WebSocket URLs remain beneath the public slug. The Basic Auth header is never forwarded to code-server. All traffic must use HTTPS.
 
-This does not mean the editor pixels are server-rendered: VS Code Web is a browser application, but its HTML, JavaScript, API calls and WebSocket connection are served through this server's domain. Marketplace/download services used by extensions may still require outbound Internet access from the server or workspace.
+This does not mean the editor pixels are server-rendered: VS Code Web is a browser application, but its HTML, JavaScript, API calls and WebSocket connection are served through this server's domain. The extension gallery is configured to use a fixed-origin Open VSX reverse proxy under `/<slug>/_dim-proxy/open-vsx/`; gallery JSON URLs and redirects for `open-vsx.org` are rewritten back to the same workspace route, and the proxy requires that workspace's Basic Auth. This proxy is intentionally not a generic URL fetcher. It covers the Open VSX marketplace and its assets, not every arbitrary API that a third-party extension or webview might contact. Extensions that call their own services can still connect directly unless they support a configurable endpoint or are separately routed through an outbound proxy.
 
 ## Admin interface features
 
@@ -98,7 +98,7 @@ Install and test `infra/backup-devvm.sh` before relying on backups. Test restore
 
 1. Confirm `/admin` is served by this host and admin APIs require a session.
 2. Create a workspace and verify `https://vs.code.de/<slug>/` loads.
-3. In browser DevTools Network, confirm workspace HTML, scripts, `/api` calls and WebSockets use `vs.code.de/<slug>/...`, not `vscode.dev` or the VM IP.
+3. In browser DevTools Network, confirm workspace HTML, scripts, `/api` calls, WebSockets and Open VSX gallery/download requests use `vs.code.de/<slug>/...`, not `vscode.dev`, `open-vsx.org` or the VM IP.
 4. Verify the terminal, editor, extensions, reload and reconnect after restarting the VM.
 5. Confirm credentials for one slug do not work on another slug.
 6. Test all eight allocations, backups and restore.
