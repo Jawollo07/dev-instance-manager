@@ -32,6 +32,60 @@ async function getInstance(user) {
 }
 
 module.exports = async function (fastify) {
+
+  // Workspaces are managed independently from user accounts. Deleting a workspace
+  // does not delete the user or their credentials.
+  fastify.get('/api/admin/workspaces', async (req, reply) => {
+    const access = await admin(req, reply)
+    if (!access) return
+    const users = access.users.filter(user => user.role === 'user')
+    reply.header('cache-control', 'no-store')
+    return { workspaces: await Promise.all(users.map(async user => ({
+      slug: user.slug,
+      username: user.username,
+      url: '/' + user.slug + '/',
+      ...(await getInstance(user))
+    }))) }
+  })
+
+  fastify.post('/api/admin/workspaces/:slug/:operation', async (req, reply) => {
+    if (!allowedOrigin(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
+    const access = await admin(req, reply)
+    if (!access) return
+    const { slug, operation } = req.params
+    if (!SLUG_RE.test(slug || '') || ['admin', 'api', 'assets'].includes(slug)) return reply.code(400).send({ error: 'Ungültiger Workspace-Slug.' })
+    const target = access.users.find(user => user.slug === slug && user.role === 'user')
+    if (!target) return reply.code(404).send({ error: 'Keinem Benutzer zugeordneter Workspace nicht gefunden.' })
+    if (!['create', 'start', 'stop'].includes(operation)) return reply.code(400).send({ error: 'Ungültige Aktion.' })
+    try {
+      const instance = await action(operation, slug)
+      await writeAudit({ actor: access.actor.username, action: 'workspace.' + operation, target: target.username, status: 'success', details: { slug, independentManagement: true } })
+      return { instance }
+    } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'workspace.' + operation, target: target.username, status: 'failed', details: { slug } })
+      req.log.error({ err, slug, operation }, 'workspace management action failed')
+      return reply.code(502).send({ error: 'Workspace-Aktion fehlgeschlagen.' })
+    }
+  })
+
+  fastify.delete('/api/admin/workspaces/:slug', async (req, reply) => {
+    if (!allowedOrigin(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
+    const access = await admin(req, reply)
+    if (!access) return
+    const { slug } = req.params
+    const target = access.users.find(user => user.slug === slug && user.role === 'user')
+    if (!target) return reply.code(404).send({ error: 'Workspace nicht gefunden.' })
+    try {
+      await action('delete', slug)
+      await writeAudit({ actor: access.actor.username, action: 'workspace.delete', target: target.username, status: 'success', details: { slug, userAccountRetained: true } })
+      return { ok: true, userRetained: true }
+    } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'workspace.delete', target: target.username, status: 'failed', details: { slug } })
+      req.log.error({ err, slug }, 'workspace delete failed')
+      return reply.code(502).send({ error: 'Workspace konnte nicht gelöscht werden. Das Benutzerkonto bleibt unverändert.' })
+    }
+  })
+
   fastify.get('/api/admin/audit', async (req, reply) => {
     const access = await admin(req, reply)
     if (!access) return
