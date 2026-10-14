@@ -4,15 +4,27 @@ const http = require('node:http')
 const https = require('node:https')
 const { execFile } = require('node:child_process')
 const { promisify } = require('node:util')
-const { readUsers, verifyPassword, SLUG_RE } = require('../lib/auth')
+const { readUsers, verifyPassword, currentUser, SLUG_RE } = require('../lib/auth')
 const run = promisify(execFile)
 const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
 const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 function originAllowed(req) { if (ORIGIN) return req.headers.origin === undefined ? ['GET', 'HEAD', 'OPTIONS'].includes(req.method) : req.headers.origin === ORIGIN; return process.env.NODE_ENV !== 'production' }
 
-async function identify(slug, header) {
+async function identify(slug, header, req) {
   if (!SLUG_RE.test(slug || '')) return null
+  const users = await readUsers()
+
+  // The shared login creates an HttpOnly session cookie. Bind that session to
+  // exactly one enabled user and that user's slug; never accept a client slug
+  // as an identity by itself.
+  if (!header && req) {
+    const username = currentUser(req)
+    return username
+      ? users.find(item => item.username === username && item.slug === slug && item.role === 'user' && item.disabled !== true) || null
+      : null
+  }
+
   const match = /^Basic\s+([A-Za-z0-9+/]+={0,2})$/i.exec(header || '')
   if (!match) return null
   let decoded
@@ -22,7 +34,6 @@ async function identify(slug, header) {
   const username = decoded.slice(0, split)
   const password = decoded.slice(split + 1)
   if (!username || password.length > 1024) return null
-  const users = await readUsers()
   const user = users.find(item => item.username === username && item.slug === slug && item.role === 'user' && item.disabled !== true)
   const valid = await verifyPassword(password, user)
   return valid ? user : null
@@ -148,9 +159,17 @@ module.exports = async function (fastify) {
     // These URL prefixes belong to the API/frontend, never to a workspace.
     if (['admin', 'api', 'assets'].includes(slug)) return reply.code(404).send({ error: 'Route nicht gefunden.' })
     let user
-    try { user = await identify(slug, req.headers.authorization) }
+    try { user = await identify(slug, req.headers.authorization, req) }
     catch (err) { req.log.error({ err }, 'workspace authentication failed'); return reply.code(503).send({ error: 'Authentifizierung momentan nicht verfügbar.' }) }
-    if (!user) return challenge(reply)
+    if (!user) {
+      // Browser navigation should land on the shared login form instead of
+      // triggering the browser's native Basic Auth dialog.
+      if (!req.headers.authorization && ['GET', 'HEAD'].includes(req.method)) {
+        reply.header('cache-control', 'no-store')
+        return reply.redirect('/')
+      }
+      return challenge(reply)
+    }
     if (!originAllowed(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
 
     const publicUrl = new URL(req.raw.url, 'http://workspace.invalid')
