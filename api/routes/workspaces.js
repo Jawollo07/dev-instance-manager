@@ -75,6 +75,15 @@ module.exports = async function (fastify) {
     if (!vm.exists) return reply.code(404).send({ error: 'Workspace wurde noch nicht erstellt.' })
     if (vm.status !== 'Running' || !vm.ip) return reply.code(409).send({ error: 'Workspace ist gestoppt. Bitte Admin kontaktieren.' })
 
+    // The public URL is /<slug>/..., but code-server runs at the VM root.
+    // Keep the trailing slash so code-server's relative asset URLs resolve under /<slug>/.
+    const publicUrl = new URL(req.raw.url, 'http://workspace.invalid')
+    if (publicUrl.pathname === '/' + slug) {
+      reply.header('Location', '/' + slug + '/' + (publicUrl.search || ''))
+      return reply.code(308).send()
+    }
+    const upstreamPath = publicUrl.pathname.slice(slug.length + 1) || '/'
+    const targetPath = upstreamPath + publicUrl.search
     const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.ip)
     let body
     if (req.body !== undefined && req.method !== 'GET' && req.method !== 'HEAD') {
@@ -83,7 +92,7 @@ module.exports = async function (fastify) {
       delete headers['transfer-encoding']
     }
     reply.hijack()
-    const upstream = http.request({ hostname: vm.ip, port: 8080, path: req.raw.url, method: req.method, headers })
+    const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: req.method, headers })
     upstream.on('response', res => { reply.raw.writeHead(res.statusCode || 502, res.headers); res.pipe(reply.raw) })
     upstream.on('error', err => {
       req.log.warn({ err, slug }, 'workspace upstream failed')
@@ -112,7 +121,10 @@ module.exports = async function (fastify) {
       const vm = await status(slug)
       if (!vm.exists || vm.status !== 'Running' || !vm.ip) return upgradeError(socket, 409, 'Workspace Not Ready')
       const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.socket.remoteAddress || '')
-      const upstream = http.request({ hostname: vm.ip, port: 8080, path: req.url, method: 'GET', headers })
+      // Strip /<slug> from WebSocket URLs too; code-server listens at /.
+      const upstreamPath = url.pathname.slice(slug.length + 1) || '/'
+      const targetPath = upstreamPath + url.search
+      const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: 'GET', headers })
       upstream.on('upgrade', (res, remote, remoteHead) => {
         const lines = []
         for (let i = 0; i < res.rawHeaders.length; i += 2) lines.push(res.rawHeaders[i] + ': ' + res.rawHeaders[i + 1])
