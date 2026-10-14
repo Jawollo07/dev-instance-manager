@@ -8,10 +8,10 @@ NETWORK_DIR="$STATE_DIR/networks"
 CLOUD_INIT="$CONFIG_DIR/cloud-init.yaml"
 STORAGE_FILE="$CONFIG_DIR/storage-pool"
 die() { echo "devvm: $*" >&2; exit 1; }
-[[ $# -eq 2 ]] || die "Usage: devvm {status|create|start|stop|delete} <slug>"
+[[ $# -ge 2 ]] || die "Usage: devvm {status|create|start|stop|delete|exec} <slug> [command]"
 action="$1"; username="$2"
 [[ "$username" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "Invalid workspace slug"
-case "$action" in status|create|start|stop|delete) ;; *) die "Invalid action" ;; esac
+case "$action" in status|create|start|stop|delete) [[ $# -eq 2 ]] || die "Unexpected arguments" ;; exec) [[ $# -eq 3 ]] || die "Usage: devvm exec <slug> <command>"; [[ ${#3} -le 4096 ]] || die "Command too long" ;; *) die "Invalid action" ;; esac
 [[ -x "$LXC" ]] || die "LXD CLI missing at $LXC"
 key="$(printf '%s' "$username" | sha256sum | cut -c1-32)"
 vm="dev-$(printf '%s' "$key" | cut -c1-20)"
@@ -58,6 +58,25 @@ ensure_network() {
 }
 case "$action" in
   status) status_json ;;
+  exec)
+    current="$(status_json)"
+    exists="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["exists"]).lower())')"
+    [[ "$exists" == true ]] || die "Instance missing"
+    running="$(printf '%s' "$current" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["status"]=="Running").lower())')"
+    [[ "$running" == true ]] || die "Instance is not running"
+    tmpdir="$(mktemp -d /run/devvm-exec.XXXXXX)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    set +e
+    "$LXC" exec "$vm" --user 1000 --group 1000 -- bash -lc "$3" >"$tmpdir/stdout" 2>"$tmpdir/stderr"
+    rc=$?
+    set -e
+    python3 - "$tmpdir/stdout" "$tmpdir/stderr" "$rc" "$username" <<'PY'
+import json,sys
+def read(path):
+    with open(path, "r", errors="replace") as f: return f.read()[-12000:]
+print(json.dumps({"slug":sys.argv[4],"exitCode":int(sys.argv[3]),"stdout":read(sys.argv[1]),"stderr":read(sys.argv[2])}))
+PY
+    ;;
   create)
     [[ -r "$CLOUD_INIT" && -r "$STORAGE_FILE" ]] || die "Missing cloud-init or storage-pool config"
     pool="$(tr -d '[:space:]' < "$STORAGE_FILE")"
