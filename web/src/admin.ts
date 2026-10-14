@@ -97,6 +97,10 @@ root.innerHTML = `
             <input name="slug" required maxlength="32" pattern="[a-z0-9][a-z0-9-]{0,31}" placeholder="test1">
           </label>
           <label>
+            Kontotyp
+            <select name="role"><option value="user">Benutzer mit Workspace</option><option value="admin">Administrator (ohne eigenen Workspace)</option></select>
+          </label>
+          <label>
             Startpasswort
             <input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password">
           </label>
@@ -528,7 +532,27 @@ function buildUserCard(user: User): HTMLElement {
   }
 
   const actions = el('div', 'actions')
+  if (user.role === 'admin') {
+    const roleButton = el('button', 'secondary', 'Als Benutzer führen')
+    roleButton.addEventListener('click', () => void changeRole(user, 'user', roleButton))
+    actions.append(roleButton)
+    const reset = el('button', 'secondary', 'Passwort setzen')
+    reset.addEventListener('click', () => void resetPassword(user, reset))
+    actions.append(reset)
+    if (user.disabled) {
+      const toggle = el('button', 'secondary', 'Entsperren')
+      toggle.addEventListener('click', () => void toggleUser(user, toggle))
+      actions.append(toggle)
+    } else {
+      const toggle = el('button', 'secondary', 'Sperren')
+      toggle.addEventListener('click', () => void toggleUser(user, toggle))
+      actions.append(toggle)
+    }
+  }
   if (user.role === 'user') {
+    const roleButton = el('button', 'secondary', 'Zum Admin machen')
+    roleButton.addEventListener('click', () => void changeRole(user, 'admin', roleButton))
+    actions.append(roleButton)
     for (const operation of ['create', 'start', 'stop'] as const) {
       const button = el('button', 'secondary', USER_ACTION_LABELS[operation])
       button.addEventListener('click', () => void instanceAction(user, operation, button))
@@ -621,6 +645,19 @@ async function instanceAction(user: User, op: UserAction, button: HTMLButtonElem
   }
 }
 
+async function changeRole(user: User, role: 'user' | 'admin', button: HTMLButtonElement) {
+  const warning = role === 'admin' ? '\n\nDer Benutzer erhält Zugriff auf alle Workspaces. Sein bisheriger Workspace bleibt bestehen.' : '\n\nDer Account verliert Adminrechte und erhält einen eigenen Workspace.'
+  if (!window.confirm('Rolle von ' + user.username + ' zu ' + (role === 'admin' ? 'Administrator' : 'Benutzer') + ' ändern?' + warning)) return
+  button.disabled = true
+  try {
+    await api('/api/admin/users/' + encodeURIComponent(user.username), 'PATCH', { role })
+    pageMessage.textContent = 'Rolle aktualisiert.'
+    await loadUsers()
+  } catch (err) {
+    pageMessage.textContent = err instanceof Error ? err.message : 'Rolle konnte nicht geändert werden.'
+  } finally { button.disabled = false }
+}
+
 async function toggleUser(user: User, button: HTMLButtonElement) {
   button.disabled = true
 
@@ -704,7 +741,8 @@ createForm.addEventListener('submit', async event => {
   event.preventDefault()
 
   createSubmit.disabled = true
-  createMessage.textContent = 'Benutzer und VM werden erstellt. Das kann einige Minuten dauern …'
+  const chosenRole = String(new FormData(createForm).get('role') || 'user')
+  createMessage.textContent = chosenRole === 'admin' ? 'Administratorkonto wird erstellt …' : 'Benutzer und VM werden erstellt. Das kann einige Minuten dauern …'
 
   const form = new FormData(createForm)
   try {
@@ -712,9 +750,10 @@ createForm.addEventListener('submit', async event => {
       username: String(form.get('username') || ''),
       slug: String(form.get('slug') || ''),
       password: String(form.get('password') || ''),
+      role: String(form.get('role') || 'user'),
     })
     createForm.reset()
-    createMessage.textContent = 'Benutzer und Workspace angelegt.'
+    createMessage.textContent = chosenRole === 'admin' ? 'Administratorkonto angelegt.' : 'Benutzer und Workspace angelegt.'
     await loadUsers()
   } catch (err) {
     createMessage.textContent = err instanceof Error ? err.message : 'Erstellen fehlgeschlagen.'
