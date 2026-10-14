@@ -16,6 +16,12 @@ write_files:
     permissions: "0644"
     content: |
       EXTENSIONS_GALLERY='{"serviceUrl":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/gallery","itemUrl":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/item","resourceUrlTemplate":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/unpkg/{publisher}/{name}/{version}/{path}","extensionUrlTemplate":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/gallery/{publisher}/{name}/latest"}'
+      HTTP_PROXY=__WORKSPACE_PROXY_URL__
+      HTTPS_PROXY=__WORKSPACE_PROXY_URL__
+      http_proxy=__WORKSPACE_PROXY_URL__
+      https_proxy=__WORKSPACE_PROXY_URL__
+      NO_PROXY=localhost,127.0.0.1,::1,vs.code.de
+      no_proxy=localhost,127.0.0.1,::1,vs.code.de
   - path: /etc/systemd/system/code-server.service
     owner: root:root
     permissions: "0644"
