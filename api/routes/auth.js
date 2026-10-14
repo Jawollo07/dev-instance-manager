@@ -2,7 +2,7 @@
 
 const { readUsers, verifyPassword, createSession, currentUser, destroySession, setSessionCookie, clearSessionCookie } = require('../lib/auth')
 
-const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
+const ORIGIN = "https://dev.mcjj.de"
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 
 function allowedOrigin(req) {

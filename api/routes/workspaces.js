@@ -7,7 +7,7 @@ const { promisify } = require('node:util')
 const { readUsers, verifyPassword, currentUser, SLUG_RE } = require('../lib/auth')
 const run = promisify(execFile)
 const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
-const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
+const ORIGIN = "https://dev.mcjj.de"
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 function originAllowed(req) { if (ORIGIN) return req.headers.origin === undefined ? ['GET', 'HEAD', 'OPTIONS'].includes(req.method) : req.headers.origin === ORIGIN; return process.env.NODE_ENV !== 'production' }
 
