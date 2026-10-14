@@ -62,6 +62,8 @@ function upgradeError(socket, code, reason, extra = '') {
 
 module.exports = async function (fastify) {
   async function proxy(req, reply, slug) {
+    // These URL prefixes belong to the API/frontend, never to a workspace.
+    if (['admin', 'api', 'assets'].includes(slug)) return reply.code(404).send({ error: 'Route nicht gefunden.' })
     let user
     try { user = await identify(slug, req.headers.authorization) }
     catch (err) { req.log.error({ err }, 'workspace authentication failed'); return reply.code(503).send({ error: 'Authentifizierung momentan nicht verfügbar.' }) }
