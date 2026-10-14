@@ -1,7 +1,6 @@
 'use strict'
 
 module.exports = async function (fastify) {
-  fastify.get('/', async function () {
-    return { root: true }
-  })
+  // Keep the API process as the only public application entry point.
+  fastify.get('/', async (_request, reply) => reply.redirect('/admin'))
 }
