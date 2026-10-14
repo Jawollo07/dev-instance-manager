@@ -115,7 +115,8 @@ module.exports = async function (fastify) {
         properties: {
           username: { type: 'string', minLength: 1, maxLength: 64 },
           slug: { type: 'string', minLength: 1, maxLength: 32 },
-          password: { type: 'string', minLength: 12, maxLength: 1024 }
+          password: { type: 'string', minLength: 12, maxLength: 1024 },
+          role: { type: 'string', enum: ['user', 'admin'] }
         }
       }
     }
@@ -128,13 +129,15 @@ module.exports = async function (fastify) {
     if (!USERNAME_RE.test(username) || !SLUG_RE.test(slug) || ['admin', 'api', 'assets'].includes(slug)) return reply.code(400).send({ error: 'Benutzername oder URL-Slug ungültig oder reserviert.' })
     if (access.users.some(user => user.username.toLowerCase() === username.toLowerCase())) return reply.code(409).send({ error: 'Benutzername bereits vergeben.' })
     if (access.users.some(user => user.slug === slug)) return reply.code(409).send({ error: 'URL-Slug bereits vergeben.' })
-    if (access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
+    const role = req.body.role || 'user'
+    if (role === 'user' && access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
     try {
       const password = await hashPassword(req.body.password)
-      const user = { username, slug, role: 'user', disabled: false, ...password, createdAt: new Date().toISOString() }
+      const user = { username, slug, role, disabled: false, ...password, createdAt: new Date().toISOString() }
       await writeUsers([...access.users, user])
-      const instance = await action('create', slug)
-      await writeAudit({ actor: access.actor.username, action: 'user.create', target: username, status: 'success', details: { slug } })
+      let instance = null
+      if (role === 'user') instance = await action('create', slug)
+      await writeAudit({ actor: access.actor.username, action: 'user.create', target: username, status: 'success', details: { slug, role } })
       return reply.code(201).send({ user: publicUser(user), instance })
     } catch (err) {
       await writeAudit({ actor: access.actor.username, action: 'user.create', target: username, status: 'failed', details: { slug } })
@@ -151,7 +154,8 @@ module.exports = async function (fastify) {
         type: 'object', additionalProperties: false,
         properties: {
           disabled: { type: 'boolean' },
-          password: { type: 'string', minLength: 12, maxLength: 1024 }
+          password: { type: 'string', minLength: 12, maxLength: 1024 },
+          role: { type: 'string', enum: ['user', 'admin'] }
         },
         minProperties: 1
       }
@@ -163,6 +167,12 @@ module.exports = async function (fastify) {
     const index = access.users.findIndex(user => user.username === req.params.username)
     if (index < 0) return reply.code(404).send({ error: 'Benutzer nicht gefunden.' })
     const target = { ...access.users[index] }
+    if (req.body.role !== undefined && req.body.role !== target.role) {
+      if (target.role === 'admin' && req.body.role !== 'admin' && access.users.filter(user => user.role === 'admin' && user.disabled !== true).length <= 1) return reply.code(409).send({ error: 'Der letzte aktive Admin kann nicht herabgestuft werden.' })
+      if (req.body.role === 'user' && target.role === 'admin') return reply.code(409).send({ error: 'Admin-Konten haben keinen eigenen Workspace. Lege stattdessen ein separates Benutzerkonto an.' })
+      if (req.body.role === 'user' && access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
+      return reply.code(400).send({ error: 'Rollenwechsel zu Admin ist nicht erlaubt; erstelle ein separates Admin-Konto.' })
+    }
     if (req.body.disabled !== undefined) {
       if (target.role === 'admin' && req.body.disabled && access.users.filter(user => user.role === 'admin' && user.disabled !== true).length <= 1) {
         return reply.code(409).send({ error: 'Der letzte aktive Admin kann nicht gesperrt werden.' })
@@ -173,7 +183,7 @@ module.exports = async function (fastify) {
     const users = [...access.users]
     users[index] = target
     await writeUsers(users)
-    await writeAudit({ actor: access.actor.username, action: req.body.password !== undefined ? 'user.password.reset' : 'user.access.change', target: target.username, status: 'success', details: req.body.disabled === undefined ? {} : { disabled: target.disabled } })
+    await writeAudit({ actor: access.actor.username, action: req.body.password !== undefined ? 'user.password.reset' : req.body.role !== undefined ? 'user.role.change' : 'user.access.change', target: target.username, status: 'success', details: req.body.disabled === undefined ? {} : { disabled: target.disabled } })
     return { user: publicUser(target) }
   })
 
