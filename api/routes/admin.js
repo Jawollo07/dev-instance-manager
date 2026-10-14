@@ -6,6 +6,7 @@ const { promisify } = require('node:util')
 const run = promisify(execFile)
 const HELPER = process.env.DEVVM_HELPER || '/usr/local/sbin/devvm'
 const BACKUP_HELPER = process.env.DEVVM_BACKUP_HELPER || '/usr/local/sbin/backup-devvm'
+const { writeAudit, readAudit } = require('../lib/audit')
 const ORIGIN = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : null
 if (process.env.NODE_ENV === 'production' && !ORIGIN) throw new Error('PUBLIC_BASE_URL is required in production')
 
@@ -31,15 +32,26 @@ async function getInstance(user) {
 }
 
 module.exports = async function (fastify) {
+  fastify.get('/api/admin/audit', async (req, reply) => {
+    const access = await admin(req, reply)
+    if (!access) return
+    const rawLimit = Number(req.query?.limit ?? 50)
+    const limit = Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 200)) : 50
+    reply.header('cache-control', 'no-store')
+    return { events: await readAudit(limit) }
+  })
+
   fastify.post('/api/admin/backups', async (req, reply) => {
     if (!allowedOrigin(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
     const access = await admin(req, reply)
     if (!access) return
     try {
       const result = await run('sudo', ['-n', BACKUP_HELPER], { timeout: 3600000, maxBuffer: 1048576 })
+      await writeAudit({ actor: access.actor.username, action: 'backup.create', status: 'success' })
       reply.header('cache-control', 'no-store')
       return { ok: true, output: result.stdout.slice(-8000) }
     } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'backup.create', status: 'failed' })
       req.log.error({ err }, 'admin backup failed')
       return reply.code(502).send({ error: 'Backup fehlgeschlagen. Ist der root-eigene Backup-Helper installiert und in sudoers freigegeben?' })
     }
@@ -63,6 +75,7 @@ module.exports = async function (fastify) {
     const command = req.body.command.trim()
     if (!command) return reply.code(400).send({ error: 'Bitte einen Befehl eingeben.' })
     const targets = access.users.filter(user => user.role === 'user')
+    await writeAudit({ actor: access.actor.username, action: 'workspace.command.broadcast', status: 'started', details: { targetCount: targets.length, commandLength: command.length } })
     req.log.info({ actor: access.actor.username, targetCount: targets.length, commandLength: command.length }, 'admin broadcast command requested')
     reply.header('cache-control', 'no-store')
     const results = await Promise.all(targets.map(async user => {
@@ -78,6 +91,7 @@ module.exports = async function (fastify) {
         return { username: user.username, slug: user.slug, status: 'failed', reason: 'Befehl konnte nicht ausgeführt werden.' }
       }
     }))
+    await writeAudit({ actor: access.actor.username, action: 'workspace.command.broadcast', status: 'finished', details: { targetCount: results.length, succeeded: results.filter(x => x.status === 'success').length, failed: results.filter(x => x.status === 'failed').length, skipped: results.filter(x => x.status === 'skipped').length } })
     return { command, results }
   })
 
@@ -120,8 +134,10 @@ module.exports = async function (fastify) {
       const user = { username, slug, role: 'user', disabled: false, ...password, createdAt: new Date().toISOString() }
       await writeUsers([...access.users, user])
       const instance = await action('create', slug)
+      await writeAudit({ actor: access.actor.username, action: 'user.create', target: username, status: 'success', details: { slug } })
       return reply.code(201).send({ user: publicUser(user), instance })
     } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'user.create', target: username, status: 'failed', details: { slug } })
       req.log.error({ err }, 'user create failed')
       return reply.code(502).send({ error: 'Benutzer angelegt, Workspace konnte aber nicht erstellt werden. Bitte Instanzstatus prüfen.' })
     }
@@ -157,6 +173,7 @@ module.exports = async function (fastify) {
     const users = [...access.users]
     users[index] = target
     await writeUsers(users)
+    await writeAudit({ actor: access.actor.username, action: req.body.password !== undefined ? 'user.password.reset' : 'user.access.change', target: target.username, status: 'success', details: req.body.disabled === undefined ? {} : { disabled: target.disabled } })
     return { user: publicUser(target) }
   })
 
@@ -170,8 +187,10 @@ module.exports = async function (fastify) {
     try {
       await action('delete', target.slug)
       await writeUsers(access.users.filter(user => user.username !== target.username))
+      await writeAudit({ actor: access.actor.username, action: 'user.delete', target: target.username, status: 'success', details: { slug: target.slug } })
       return { ok: true }
     } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'user.delete', target: target.username, status: 'failed', details: { slug: target.slug } })
       req.log.error({ err }, 'user delete failed')
       return reply.code(502).send({ error: 'Workspace konnte nicht sicher gelöscht werden; Benutzer wurde beibehalten.' })
     }
@@ -185,7 +204,14 @@ module.exports = async function (fastify) {
     if (!target) return reply.code(404).send({ error: 'Workspace-Benutzer nicht gefunden.' })
     const operation = req.params.operation
     if (!['create', 'start', 'stop'].includes(operation)) return reply.code(400).send({ error: 'Ungültige Aktion.' })
-    try { return { instance: await action(operation, target.slug) } }
-    catch (err) { req.log.error({ err }, 'admin instance action failed'); return reply.code(502).send({ error: 'Instanzaktion fehlgeschlagen.' }) }
+    try {
+      const instance = await action(operation, target.slug)
+      await writeAudit({ actor: access.actor.username, action: 'workspace.' + operation, target: target.username, status: 'success', details: { slug: target.slug } })
+      return { instance }
+    } catch (err) {
+      await writeAudit({ actor: access.actor.username, action: 'workspace.' + operation, target: target.username, status: 'failed', details: { slug: target.slug } })
+      req.log.error({ err }, 'admin instance action failed')
+      return reply.code(502).send({ error: 'Instanzaktion fehlgeschlagen.' })
+    }
   })
 }
