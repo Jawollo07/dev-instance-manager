@@ -113,8 +113,7 @@ function proxyOpenVSX(req, reply, slug, publicUrl) {
       let text = Buffer.concat(chunks).toString('utf8')
       const publicOrigin = ORIGIN || ('https://' + (req.headers.host || 'vs.code.de'))
       const localBase = publicOrigin + prefix
-      text = text.replace(/https?:\\/\\/open-vsx\\.org/gi, localBase)
-      text = text.replace(/https:\\/\\/\\/open-vsx\\.org/gi, localBase)
+      text = text.replace(/https?:\/\/open-vsx\.org/gi, localBase)
       delete outHeaders['content-length']
       delete outHeaders['content-encoding']
       outHeaders['content-length'] = Buffer.byteLength(text)
