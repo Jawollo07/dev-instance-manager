@@ -101,7 +101,7 @@ module.exports = async function (fastify) {
     reply.header('cache-control', 'no-store')
     const users = await Promise.all(access.users.map(async user => ({
       ...publicUser(user),
-      instance: user.role === 'user' ? await getInstance(user) : null
+      instance: await getInstance(user)
     })))
     return { users }
   })
@@ -168,10 +168,15 @@ module.exports = async function (fastify) {
     if (index < 0) return reply.code(404).send({ error: 'Benutzer nicht gefunden.' })
     const target = { ...access.users[index] }
     if (req.body.role !== undefined && req.body.role !== target.role) {
-      if (target.role === 'admin' && req.body.role !== 'admin' && access.users.filter(user => user.role === 'admin' && user.disabled !== true).length <= 1) return reply.code(409).send({ error: 'Der letzte aktive Admin kann nicht herabgestuft werden.' })
-      if (req.body.role === 'user' && target.role === 'admin') return reply.code(409).send({ error: 'Admin-Konten haben keinen eigenen Workspace. Lege stattdessen ein separates Benutzerkonto an.' })
-      if (req.body.role === 'user' && access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
-      return reply.code(400).send({ error: 'Rollenwechsel zu Admin ist nicht erlaubt; erstelle ein separates Admin-Konto.' })
+      if (target.role === 'admin' && req.body.role === 'user' && access.users.filter(user => user.role === 'admin' && user.disabled !== true).length <= 1) return reply.code(409).send({ error: 'Der letzte aktive Admin kann nicht herabgestuft werden.' })
+      if (req.body.role === 'user' && target.role === 'admin') {
+        if (access.users.filter(user => user.role === 'user').length >= 8) return reply.code(409).send({ error: 'Maximal acht Benutzer-Workspaces erlaubt.' })
+        const instance = await getInstance(target)
+        if (!instance.exists) {
+          try { await action('create', target.slug) } catch (err) { req.log.error({ err }, 'workspace provision during role change failed'); return reply.code(502).send({ error: 'Workspace konnte beim Rollenwechsel nicht erstellt werden.' }) }
+        }
+      }
+      target.role = req.body.role
     }
     if (req.body.disabled !== undefined) {
       if (target.role === 'admin' && req.body.disabled && access.users.filter(user => user.role === 'admin' && user.disabled !== true).length <= 1) {
