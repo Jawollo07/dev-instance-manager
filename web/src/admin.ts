@@ -598,7 +598,7 @@ async function loadUsers() {
     pageMessage.textContent = 'Stand: ' + new Date().toLocaleTimeString()
   } catch (err) {
     if (err instanceof Error && /401|403|Admin-Berechtigung/.test(err.message)) {
-      showLogin('Dieses Konto hat keine Admin-Berechtigung. Bitte als Admin anmelden.')
+      window.location.replace('/')
     } else {
       pageMessage.textContent = err instanceof Error ? err.message : 'Laden fehlgeschlagen.'
     }
@@ -800,7 +800,7 @@ async function init() {
     await loadUsers()
     await loadAudit()
   } catch {
-    showLogin()
+    window.location.replace('/')
   }
 }
 
