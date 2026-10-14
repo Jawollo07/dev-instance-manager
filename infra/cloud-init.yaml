@@ -11,6 +11,11 @@ users:
     lock_passwd: true
     sudo: []
 write_files:
+  - path: /etc/default/code-server-gallery
+    owner: root:root
+    permissions: "0644"
+    content: |
+      EXTENSIONS_GALLERY='{"serviceUrl":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/gallery","itemUrl":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/item","resourceUrlTemplate":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/unpkg/{publisher}/{name}/{version}/{path}","extensionUrlTemplate":"https://vs.code.de__WORKSPACE_BASE_PATH__/_dim-proxy/open-vsx/vscode/gallery/{publisher}/{name}/latest"}'
   - path: /etc/systemd/system/code-server.service
     owner: root:root
     permissions: "0644"
@@ -25,6 +30,7 @@ write_files:
       Group=coder
       WorkingDirectory=/home/coder/project
       Environment=HOME=/home/coder
+      EnvironmentFile=/etc/default/code-server-gallery
       # The manager replaces this with the user's URL slug during provisioning.
       ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --base-path __WORKSPACE_BASE_PATH__ --auth none --disable-telemetry --disable-update-check
       Restart=on-failure
