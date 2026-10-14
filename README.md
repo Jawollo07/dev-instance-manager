@@ -20,6 +20,7 @@ The Basic Auth username/password are the local user's username and password. A c
 - Disable/enable users, reset passwords and delete a user's VM and account.
 - Enforce an eight-user workspace cap.
 - Trigger a backup of all `dev-*` VMs from the admin dashboard when the root-owned backup helper is installed.
+- Run a manually entered shell command across all running user workspaces and inspect each instance's exit code, stdout and stderr. Commands run as the unprivileged `coder` user, not as root; stopped/missing workspaces are skipped.
 
 CPU/RAM/disk limits are currently configured by the root-owned LXD helper (2 vCPU, 3 GiB RAM, 20 GiB disk). Per-user quota editing, an in-browser backup/restore panel, audit log viewer and automatic backup scheduling are not yet implemented. The existing root backup script can export all `dev-*` VMs.
 
@@ -158,6 +159,10 @@ Backups use restrictive permissions and default to seven-day retention. Test a r
 7. Verify intended egress, DNS and IPv6 behavior.
 8. Test all eight allocations, backups and restore.
 9. Verify NGINX rate limiting and HTTPS cookie flags.
+
+## Broadcast commands
+
+The admin dashboard includes a **Befehl auf allen Instanzen ausführen** panel. It sends the command to every configured user workspace that currently exists and is running. Each command is executed inside that VM as the named unprivileged `coder` account via `runuser`; it is not executed as root. Stopped or missing instances are reported as skipped. Output and exit codes are shown separately per workspace. The command is arbitrary shell input, so only trusted administrators should have dashboard access. Review commands carefully before confirming, especially commands that modify or delete files. The feature requires the updated `infra/devvm` helper to be installed at `/usr/local/sbin/devvm` on the host; re-install it after updating the repository.
 
 ## Current limitations
 

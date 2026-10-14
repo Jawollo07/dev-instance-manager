@@ -45,6 +45,42 @@ module.exports = async function (fastify) {
     }
   })
 
+  // Run an explicitly supplied shell command as the unprivileged coder user in each running user workspace.
+  fastify.post('/api/admin/commands', {
+    bodyLimit: 8192,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['command'],
+        properties: { command: { type: 'string', minLength: 1, maxLength: 4096 } }
+      }
+    }
+  }, async (req, reply) => {
+    if (!allowedOrigin(req)) return reply.code(403).send({ error: 'Ungültiger Origin.' })
+    const access = await admin(req, reply)
+    if (!access) return
+    const command = req.body.command.trim()
+    if (!command) return reply.code(400).send({ error: 'Bitte einen Befehl eingeben.' })
+    const targets = access.users.filter(user => user.role === 'user')
+    req.log.info({ actor: access.actor.username, targetCount: targets.length, commandLength: command.length }, 'admin broadcast command requested')
+    reply.header('cache-control', 'no-store')
+    const results = await Promise.all(targets.map(async user => {
+      const instance = await getInstance(user)
+      if (!instance.exists) return { username: user.username, slug: user.slug, status: 'skipped', reason: 'Instanz existiert nicht.' }
+      if (instance.status !== 'Running') return { username: user.username, slug: user.slug, status: 'skipped', reason: 'Instanz läuft nicht.' }
+      try {
+        const result = await run('sudo', ['-n', HELPER, 'exec', user.slug, command], { timeout: 65000, maxBuffer: 65536 })
+        const parsed = JSON.parse(result.stdout)
+        return { username: user.username, slug: user.slug, status: parsed.exitCode === 0 ? 'success' : 'failed', exitCode: parsed.exitCode, stdout: parsed.stdout, stderr: parsed.stderr }
+      } catch (err) {
+        req.log.warn({ err, slug: user.slug }, 'admin broadcast command failed')
+        return { username: user.username, slug: user.slug, status: 'failed', reason: 'Befehl konnte nicht ausgeführt werden.' }
+      }
+    }))
+    return { command, results }
+  })
+
   fastify.get('/api/admin/users', async (req, reply) => {
     const access = await admin(req, reply)
     if (!access) return
