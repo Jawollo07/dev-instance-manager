@@ -468,7 +468,6 @@ const workspaceMessage = document.getElementById('workspace-message') as HTMLEle
 const workspaceRefresh = document.getElementById('workspace-refresh') as HTMLButtonElement
 const workspacePanel = document.getElementById('workspaces-panel') as HTMLElement
 const broadcastPanel = document.getElementById('broadcast-panel') as HTMLElement
-const backupButton = document.getElementById('backup') as HTMLButtonElement
 workspacePanel.append(broadcastPanel)
 workspacePanel.querySelector('.section-head')?.append(backupButton)
 
