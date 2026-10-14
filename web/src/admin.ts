@@ -111,7 +111,7 @@ root.innerHTML = `
         <p id="create-message" class="message" role="status"></p>
       </section>
 
-      <section class="panel">
+      <section id="broadcast-panel" class="panel">
         <div class="section-head">
           <div>
             <h2>Befehl auf allen Instanzen ausführen</h2>
@@ -466,6 +466,11 @@ const auditRefresh = document.getElementById('audit-refresh') as HTMLButtonEleme
 const workspaceNode = document.getElementById('workspaces') as HTMLElement
 const workspaceMessage = document.getElementById('workspace-message') as HTMLElement
 const workspaceRefresh = document.getElementById('workspace-refresh') as HTMLButtonElement
+const workspacePanel = document.getElementById('workspaces-panel') as HTMLElement
+const broadcastPanel = document.getElementById('broadcast-panel') as HTMLElement
+const backupButton = document.getElementById('backup') as HTMLButtonElement
+workspacePanel.append(broadcastPanel)
+workspacePanel.querySelector('.section-head')?.append(backupButton)
 
 const USER_ACTION_LABELS: Record<UserAction, string> = {
   create: 'Erstellen',
