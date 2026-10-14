@@ -162,7 +162,7 @@ Backups use restrictive permissions and default to seven-day retention. Test a r
 
 ## Broadcast commands
 
-The admin dashboard includes a **Befehl auf allen Instanzen ausführen** panel. It sends the command to every configured user workspace that currently exists and is running. Each command is executed with `bash -lc` as UID/GID 1000 (`coder`) inside that VM; it is not executed as root. Stopped or missing instances are reported as skipped. Output and exit codes are shown separately per workspace. The command is arbitrary shell input, so only trusted administrators should have dashboard access. Review commands carefully before confirming, especially commands that modify or delete files. The feature requires the updated `infra/devvm` helper to be installed at `/usr/local/sbin/devvm` on the host; re-install it after updating the repository.
+The admin dashboard includes a **Befehl auf allen Instanzen ausführen** panel. It sends the command to every configured user workspace that currently exists and is running. Each command is executed inside that VM as the named unprivileged `coder` account via `runuser`; it is not executed as root. Stopped or missing instances are reported as skipped. Output and exit codes are shown separately per workspace. The command is arbitrary shell input, so only trusted administrators should have dashboard access. Review commands carefully before confirming, especially commands that modify or delete files. The feature requires the updated `infra/devvm` helper to be installed at `/usr/local/sbin/devvm` on the host; re-install it after updating the repository.
 
 ## Current limitations
 
