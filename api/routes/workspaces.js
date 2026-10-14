@@ -172,9 +172,17 @@ module.exports = async function (fastify) {
       return reply.code(308).send()
     }
 
-    // code-server is configured with --base-path /<slug>. Preserve that prefix
-    // upstream so every HTML, asset, API and extension request stays on this host.
-    const targetPath = publicUrl.pathname + publicUrl.search
+    // code-server does not support a general --base-path option. Strip the
+    // public workspace prefix before forwarding so code-server receives normal
+    // paths such as /, /static/... and /healthz.
+    const prefix = '/' + slug
+    const upstreamPath = publicUrl.pathname === prefix
+      ? '/'
+      : publicUrl.pathname.startsWith(prefix + '/')
+        ? publicUrl.pathname.slice(prefix.length)
+        : null
+    if (upstreamPath === null) return reply.code(404).send({ error: 'Workspace-Route nicht gefunden.' })
+    const targetPath = upstreamPath + publicUrl.search
     const headers = cleanHeaders(req.headers, vm.ip + ':8080', req.ip)
     let body
     if (req.body !== undefined && req.method !== 'GET' && req.method !== 'HEAD') {
@@ -190,11 +198,16 @@ module.exports = async function (fastify) {
       // emit an absolute Location based on the upstream Host header.
       if (responseHeaders.location) {
         try {
-          const location = new URL(responseHeaders.location, 'http://' + vm.ip + ':8080')
+          const originalLocation = responseHeaders.location
+          const location = new URL(originalLocation, 'http://' + vm.ip + ':8080')
           const upstreamHosts = new Set([vm.ip, vm.ip + ':8080', '127.0.0.1:8080', 'localhost:8080'])
           if (upstreamHosts.has(location.host) || location.hostname === vm.ip) {
             const publicOrigin = ORIGIN || ('https://' + (req.headers.host || 'vs.code.de'))
-            responseHeaders.location = publicOrigin + location.pathname + location.search + location.hash
+            responseHeaders.location = publicOrigin + prefix + (location.pathname.startsWith('/') ? location.pathname : '/' + location.pathname) + location.search + location.hash
+          } else if (originalLocation.startsWith('/') && !originalLocation.startsWith('//')) {
+            // Root-relative code-server redirects must stay inside this user's path.
+            const publicOrigin = ORIGIN || ('https://' + (req.headers.host || 'vs.code.de'))
+            responseHeaders.location = publicOrigin + prefix + location.pathname + location.search + location.hash
           }
         } catch {}
       }
@@ -231,8 +244,15 @@ module.exports = async function (fastify) {
       headers.connection = 'Upgrade'
       headers.upgrade = 'websocket'
       headers['x-forwarded-host'] = req.headers.host || ''
-      // Keep /<slug> on the upstream: code-server's --base-path handles it.
-      const targetPath = url.pathname + url.search
+      // Strip the public workspace prefix for code-server's WebSocket endpoint too.
+      const prefix = '/' + slug
+      const upstreamPath = url.pathname === prefix
+        ? '/'
+        : url.pathname.startsWith(prefix + '/')
+          ? url.pathname.slice(prefix.length)
+          : null
+      if (upstreamPath === null) return upgradeError(socket, 404, 'Not Found')
+      const targetPath = upstreamPath + url.search
       const upstream = http.request({ hostname: vm.ip, port: 8080, path: targetPath, method: 'GET', headers })
       upstream.on('upgrade', (res, remote, remoteHead) => {
         fastify.log.debug({ slug, path: targetPath, statusCode: res.statusCode }, 'workspace websocket upgraded')
